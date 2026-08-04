@@ -216,3 +216,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------
+# Project-specific (BMDS2003 Group 4)
+# ---------------------------------------------------------------
+
+# OS junk files (group members are on Windows / macOS)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# NOTE: the following are intentionally NOT ignored — they are part of
+# the submission and must stay in the repository:
+#   apartments_for_rent_classified_100K.csv  (raw dataset)
+#   eda_graphs/*.png, model_graphs/*.png     (report graphs)
+#   streamlit/*.joblib                       (trained model artifacts)

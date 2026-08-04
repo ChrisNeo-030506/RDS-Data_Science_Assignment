@@ -1,0 +1,12 @@
+# Normalise line endings so group members on Windows / macOS / Linux
+# don't produce whole-file diffs just from CRLF vs LF.
+* text=auto
+
+# Treat these as binary — never touch their bytes.
+*.csv    -text
+*.joblib binary
+*.png    binary
+*.jpg    binary
+
+# Notebooks: keep bytes as-is so cell outputs / checksums stay intact.
+*.ipynb  -text
