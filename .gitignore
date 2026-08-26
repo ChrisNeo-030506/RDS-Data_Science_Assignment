@@ -236,3 +236,17 @@ desktop.ini
 #   apartments_for_rent_classified_100K.csv  (raw dataset)
 #   eda_graphs/*.png, model_graphs/*.png     (report graphs)
 #   streamlit/*.joblib                       (trained model artifacts)
+client_secret.json
+REPORT_BMDS2003_Group4.md
+
+# MLflow local runs and database
+mlruns/
+mlflow.db
+
+# Large models (>100MB)
+streamlit/model_random_forest.joblib
+
+# Root model artifacts (use streamlit/ folder instead)
+/rent_model.joblib
+/model_columns.joblib
+/state_geo.joblib

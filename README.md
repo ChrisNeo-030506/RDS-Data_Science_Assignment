@@ -100,46 +100,36 @@ Option B requires nothing to be installed.
 
 ## 3. How to Run the Streamlit App
 
-The app loads the pre-trained `.joblib` files inside `streamlit/`, so you do **not** need to
-run the notebook first.
+The app loads the pre-trained `.joblib` files inside `streamlit/`, supporting all **4 Machine Learning Models** (Hist Gradient Boosting, Random Forest, Decision Tree, Linear Regression Baseline).
 
-1. Open a terminal (Anaconda Prompt / PowerShell / Terminal) in the project folder and
-   navigate into the `streamlit` folder:
+### Step-by-Step Guide:
+
+1. **Activate the existing virtual environment** (from the project root):
+   ```bash
+   source .venv/bin/activate        # macOS / Linux
+   # or: .venv\Scripts\activate     # Windows
    ```
+
+2. **Navigate into the `streamlit` folder**:
+   ```bash
    cd streamlit
    ```
 
-2. *(Optional but recommended)* Create and activate a virtual environment so these packages
-   do not affect your other projects:
-   ```
-   python -m venv .venv
-   .venv\Scripts\activate        # Windows
-   source .venv/bin/activate     # macOS / Linux
-   ```
-
-3. First-time setup only — install the dependencies (skip if you already have them):
-   ```
-   pip install -r requirements.txt
-   ```
-   Or install them manually:
-   ```
-   pip install streamlit scikit-learn pandas numpy joblib
-   ```
-
-4. Launch the app:
-   ```
+3. **Launch the Streamlit app**:
+   ```bash
    streamlit run app.py
    ```
+   *(Alternatively, run in one command from inside `streamlit/`: `../.venv/bin/streamlit run app.py` on macOS)*
 
-5. The app opens automatically in your browser at <http://localhost:8501>.
-   If it does not, copy the **Local URL** shown in the terminal into your browser.
-   *(On the very first run Streamlit may ask for an email — just press `Enter` to skip.)*
+4. **Access the Web Dashboard**:
+   The app will automatically open in your browser at <http://localhost:8501>.
+   - Select any of the **4 Machine Learning Models** or choose **Compare All 4 Models Simultaneously**.
+   - Pick your target **State** and **City** (auto-loads median price & GPS coordinates).
+   - Adjust square footage, bedrooms, bathrooms, and select property amenities.
+   - View real-time valuation, confidence ranges, unit rates, spatial map pin, and multi-model consensus charts!
 
-6. Using the app: set the apartment features in the **sidebar** (square feet, bedrooms,
-   bathrooms, number of amenities, pets allowed, listing photo, broker fee, US state),
-   then click **Predict rent** to get the estimated monthly rent.
+5. To stop the web server, press `Ctrl + C` in the terminal.
 
-7. To stop the app, press `Ctrl + C` in the terminal.
 
 ### Troubleshooting
 
