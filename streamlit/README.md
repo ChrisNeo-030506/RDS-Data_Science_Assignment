@@ -1,51 +1,61 @@
-# Apartment Rent Predictor — Deployment Prototype
+# 🖥️ Streamlit Deployment Prototype — US Apartment Rent Predictor
 
-BMDS2003 Data Science Project. A Streamlit web app that predicts the monthly
-rent (USD) of a US apartment from its features. Trained on the 100K dataset.
-Random Forest is the most accurate of the four models compared (Test R² ≈ 0.86),
-but the app deploys the **Hist Gradient Boosting Regressor** (Test R² ≈ 0.77) —
-its model file is ~0.4 MB vs ~140 MB for Random Forest, making it far more
-practical to ship and load.
+This directory contains the production-ready Streamlit web application and its automated training pipeline for predicting monthly US apartment rent.
 
-## Files
-| File | Purpose |
-|------|---------|
-| `app.py` | Streamlit web app (the deployment prototype) |
-| `train_model.py` | Trains the model and regenerates the three `.joblib` files |
-| `rent_model.joblib` | Trained Hist Gradient Boosting model |
-| `model_columns.joblib` | Training feature columns (aligns the input row) |
-| `state_geo.joblib` | Per-state median latitude/longitude |
-| `requirements.txt` | Python dependencies |
+---
 
-## How to run
-1. (Recommended) create and activate a virtual environment:
-   ```
-   python -m venv .venv
-   .venv\Scripts\activate       # Windows
-   source .venv/bin/activate    # macOS / Linux
-   ```
-2. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-3. **If loading the model raises a scikit-learn version error**, regenerate the
-   artifacts with your local version (needs
-   `apartments_for_rent_classified_100K.csv` in the parent folder):
-   ```
-   python train_model.py
-   ```
-4. Launch the app:
-   ```
-   streamlit run app.py
-   ```
-   Open <http://localhost:8501>. If prompted for an email on first run, just
-   press Enter to skip.
+## 📁 Artifacts & Files
 
-## How it works
-Enter the apartment's features in the sidebar (size, bedrooms, bathrooms,
-amenities, pets, listing photo, broker fee, US state) and click **Predict rent**.
-The app builds a single feature row that matches the training columns — the
-chosen state fills in that state's median latitude/longitude, which are the
-model's strongest predictors — and returns the estimated monthly rent.
+| File | Type | Description |
+| :--- | :--- | :--- |
+| **[`app.py`](file:///Users/zeo/Downloads/RDS-Data_Science_Assignment/streamlit/app.py)** | Application | Interactive web interface with multi-model consensus, dynamic geolocation autofill, and confidence intervals |
+| **[`train_model.py`](file:///Users/zeo/Downloads/RDS-Data_Science_Assignment/streamlit/train_model.py)** | Pipeline | Trains all 4 ML models, standardizes features, logs runs to MLflow, and exports `.joblib` binaries |
+| **`rent_model.joblib`** | Model | Default production model artifact (Hist Gradient Boosting) |
+| **`model_hist_gradient_boosting.joblib`** | Model | Tuned Hist Gradient Boosting model binary (~7.2 MB) |
+| **`model_random_forest.joblib`** | Model | 100-Tree Random Forest model binary (~140 MB) |
+| **`model_decision_tree.joblib`** | Model | Tuned Decision Tree model binary (~0.5 MB) |
+| **`model_linear.joblib`** | Model | Baseline Linear Regression model binary (< 3 KB) |
+| **`model_metrics.joblib`** | Metadata | Serialized test holdout evaluation metrics for UI consensus comparison |
+| **`scaler.joblib`** | Preprocessor | Fitted `StandardScaler` for continuous feature normalization |
+| **`num_cols.joblib`** | Metadata | List of continuous feature column names |
+| **`model_columns.joblib`** | Metadata | Complete one-hot feature vector column alignment schema |
+| **`state_geo.joblib`** | Metadata | Per-state median latitude / longitude lookup table |
+| **`city_geo.joblib`** | Metadata | Per-city metadata (state mapping, GPS coordinates, historical median price) |
+| **[`requirements.txt`](file:///Users/zeo/Downloads/RDS-Data_Science_Assignment/streamlit/requirements.txt)** | Dependencies | Python dependencies required to run the web app and training pipeline |
 
-Dataset: UCI *Apartment for Rent Classified* (100K version).
+---
+
+## ⚡ Quickstart
+
+### 1. Set Up Virtual Environment & Dependencies
+```bash
+# From the repository root:
+python3 -m venv .venv
+source .venv/bin/activate       # macOS / Linux
+# or: .venv\Scripts\activate    # Windows
+
+pip install -r streamlit/requirements.txt
+```
+
+### 2. Launch the Streamlit App
+```bash
+# Navigate to this folder
+cd streamlit
+
+# Run the app
+streamlit run app.py
+```
+Open **`http://localhost:8501`** in your browser.
+
+---
+
+## 🔄 Retraining Models & Updating Artifacts
+
+If you modify feature engineering, hyperparameters, or encounter a scikit-learn version mismatch:
+
+```bash
+# Run the training script (requires apartments_for_rent_classified_100K.csv in the parent directory)
+python train_model.py
+```
+
+This will retrain all 4 models, log runs to SQLite-backed MLflow, and regenerate all `.joblib` files.
