@@ -75,7 +75,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- Load Trained Artifacts ----------
+import mlflow
+import mlflow.sklearn
+
+DB_PATH = os.path.join(HERE, "..", "mlflow.db")
+MLFLOW_URI = f"sqlite:///{DB_PATH}" if os.path.exists(DB_PATH) else f"sqlite:///{os.path.join(HERE, 'mlflow.db')}"
+
+# ---------- Load Trained Artifacts (MLflow Registry + Local Fallbacks) ----------
 @st.cache_resource
 def load_all_artifacts():
     scaler = joblib.load(os.path.join(HERE, "scaler.joblib"))
@@ -84,15 +90,58 @@ def load_all_artifacts():
     state_geo = joblib.load(os.path.join(HERE, "state_geo.joblib"))
     city_data = joblib.load(os.path.join(HERE, "city_geo.joblib"))
     
-    models = {
-        "Gradient Boosting (Recommended)": joblib.load(os.path.join(HERE, "model_hist_gradient_boosting.joblib")),
-        "Random Forest Ensemble": joblib.load(os.path.join(HERE, "model_random_forest.joblib")),
-        "Decision Tree": joblib.load(os.path.join(HERE, "model_decision_tree.joblib")),
-        "Linear Baseline": joblib.load(os.path.join(HERE, "model_linear.joblib"))
-    }
-    return models, scaler, num_cols, columns, state_geo, city_data
+    models = {}
+    mlflow_meta = {}
+    
+    # 1. Primary: Load models via MLflow Run Map & Registry
+    try:
+        run_map_path = os.path.join(HERE, "mlflow_run_map.joblib")
+        if os.path.exists(run_map_path):
+            mlflow.set_tracking_uri(MLFLOW_URI)
+            run_map = joblib.load(run_map_path)
+            
+            disp_map = {
+                "Hist Gradient Boosting (Tuned)": "Gradient Boosting (Recommended)",
+                "Random Forest (100 Trees)": "Random Forest Ensemble",
+                "Decision Tree (Tuned)": "Decision Tree",
+                "Linear Regression (Baseline)": "Linear Baseline"
+            }
+            for train_name, meta in run_map.items():
+                display_label = disp_map.get(train_name, train_name)
+                try:
+                    loaded_model = mlflow.sklearn.load_model(meta["artifact_uri"])
+                    models[display_label] = loaded_model
+                    mlflow_meta[display_label] = meta["run_id"]
+                except Exception:
+                    pass
+    except Exception:
+        pass
+        
+    # 2. Secondary: Fallback to local .joblib files
+    candidate_joblibs = [
+        ("Gradient Boosting (Recommended)", "model_hist_gradient_boosting.joblib"),
+        ("Random Forest Ensemble", "model_random_forest.joblib"),
+        ("Decision Tree", "model_decision_tree.joblib"),
+        ("Linear Baseline", "model_linear.joblib")
+    ]
+    for display_name, file_name in candidate_joblibs:
+        if display_name not in models:
+            f_path = os.path.join(HERE, file_name)
+            if os.path.exists(f_path):
+                try:
+                    models[display_name] = joblib.load(f_path)
+                except Exception:
+                    pass
+                    
+    # 3. Fallback to default rent_model.joblib if needed
+    if not models:
+        default_model_path = os.path.join(HERE, "rent_model.joblib")
+        if os.path.exists(default_model_path):
+            models["Gradient Boosting (Recommended)"] = joblib.load(default_model_path)
+            
+    return models, scaler, num_cols, columns, state_geo, city_data, mlflow_meta
 
-models, scaler, num_cols, columns, state_geo, city_data = load_all_artifacts()
+models, scaler, num_cols, columns, state_geo, city_data, mlflow_meta = load_all_artifacts()
 
 states = sorted(state_geo.index)
 city_table = city_data.get("city_table", pd.DataFrame())
@@ -101,12 +150,7 @@ city_table = city_data.get("city_table", pd.DataFrame())
 st.sidebar.markdown("## Property and Estimation Settings")
 
 # Model Selection
-model_options = [
-    "Gradient Boosting (Recommended)",
-    "Random Forest Ensemble",
-    "Decision Tree",
-    "Linear Baseline"
-]
+model_options = list(models.keys()) if models else ["Gradient Boosting (Recommended)"]
 selected_option = st.sidebar.selectbox("Valuation Algorithm", model_options, index=0)
 
 

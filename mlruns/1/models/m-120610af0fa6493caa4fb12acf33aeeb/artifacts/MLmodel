@@ -1,0 +1,23 @@
+artifact_path: /Users/zeo/Downloads/RDS-Data_Science_Assignment/mlruns/1/models/m-120610af0fa6493caa4fb12acf33aeeb/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.skops
+    predict_fn: predict
+    python_version: 3.13.12
+  sklearn:
+    code: null
+    pickled_model: model.skops
+    serialization_format: skops
+    sklearn_version: 1.9.0
+    skops_trusted_types: null
+mlflow_version: 3.15.2
+model_id: m-120610af0fa6493caa4fb12acf33aeeb
+model_size_bytes: 9037886
+model_uuid: m-120610af0fa6493caa4fb12acf33aeeb
+prompts: null
+run_id: 080f0567e49343f2b7d6afd17bf1aacd
+utc_time_created: '2026-08-27 06:04:43.000429'

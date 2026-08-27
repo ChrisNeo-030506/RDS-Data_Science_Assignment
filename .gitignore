@@ -239,14 +239,7 @@ desktop.ini
 client_secret.json
 REPORT_BMDS2003_Group4.md
 
-# MLflow local runs and database
-mlruns/
-mlflow.db
-
-# Large models (>100MB)
-streamlit/model_random_forest.joblib
-
-# Root model artifacts (use streamlit/ folder instead)
+# Root model artifacts (use streamlit/ or mlflow instead)
 /rent_model.joblib
 /model_columns.joblib
 /state_geo.joblib
