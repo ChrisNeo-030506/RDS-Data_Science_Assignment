@@ -248,3 +248,5 @@ mlflow.db
 # Ignore single raw unchunked RF binary in git (use .part* chunks instead)
 streamlit/model_random_forest.joblib
 !streamlit/model_random_forest.joblib.part*
+
+REPORT_BMDS2003_Group4.md
