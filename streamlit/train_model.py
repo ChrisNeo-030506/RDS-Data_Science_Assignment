@@ -217,8 +217,21 @@ for name, item in models.items():
             "artifact_uri": f"runs:/{run.info.run_id}/model"
         }
         
-        # Also export compressed joblib artifact as local portable fallback (< 20MB)
-        joblib.dump(m, os.path.join(HERE, f"model_{k}.joblib"), compress=3)
+        # Export compressed joblib artifact
+        out_fpath = os.path.join(HERE, f"model_{k}.joblib")
+        joblib.dump(m, out_fpath, compress=3)
+        
+        # Split large models (> 48MB) into safe < 50MB chunks for GitHub
+        if os.path.getsize(out_fpath) > 48 * 1024 * 1024:
+            chunk_size = 45 * 1024 * 1024
+            with open(out_fpath, "rb") as f:
+                part = 0
+                while chunk := f.read(chunk_size):
+                    with open(f"{out_fpath}.part{part}", "wb") as pf:
+                        pf.write(chunk)
+                    part += 1
+            print(f"    [GitHub Safe Mode] Split {os.path.basename(out_fpath)} into {part} chunks (< 50MB each)")
+            
         print(f"    {name} -> MAE: ${mae_usd:.2f} | RMSE: ${rmse_usd:.2f} | MAPE: {mape:.2f}% | R²: {r2:.4f} [MLflow Run: {run.info.run_id[:8]}]")
 
 # Save default deployed model (HistGradientBoosting)

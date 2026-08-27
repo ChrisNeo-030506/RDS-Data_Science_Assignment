@@ -81,9 +81,22 @@ import mlflow.sklearn
 DB_PATH = os.path.join(HERE, "..", "mlflow.db")
 MLFLOW_URI = f"sqlite:///{DB_PATH}" if os.path.exists(DB_PATH) else f"sqlite:///{os.path.join(HERE, 'mlflow.db')}"
 
-# ---------- Load Trained Artifacts (MLflow Registry + Local Fallbacks) ----------
+import glob
+
+# ---------- Load Trained Artifacts (Local Compressed Joblib + Optional MLflow) ----------
 @st.cache_resource
 def load_all_artifacts():
+    # Auto-reconstruct any split chunked model binaries (e.g. Full-Depth Random Forest)
+    for model_fname in ["model_random_forest.joblib", "model_hist_gradient_boosting.joblib"]:
+        target_path = os.path.join(HERE, model_fname)
+        if not os.path.exists(target_path):
+            parts = sorted(glob.glob(f"{target_path}.part*"))
+            if parts:
+                with open(target_path, "wb") as out_f:
+                    for p in parts:
+                        with open(p, "rb") as in_f:
+                            out_f.write(in_f.read())
+
     scaler = joblib.load(os.path.join(HERE, "scaler.joblib"))
     num_cols = joblib.load(os.path.join(HERE, "num_cols.joblib"))
     columns = joblib.load(os.path.join(HERE, "model_columns.joblib"))
@@ -93,31 +106,7 @@ def load_all_artifacts():
     models = {}
     mlflow_meta = {}
     
-    # 1. Primary: Load models via MLflow Run Map & Registry
-    try:
-        run_map_path = os.path.join(HERE, "mlflow_run_map.joblib")
-        if os.path.exists(run_map_path):
-            mlflow.set_tracking_uri(MLFLOW_URI)
-            run_map = joblib.load(run_map_path)
-            
-            disp_map = {
-                "Hist Gradient Boosting (Tuned)": "Gradient Boosting (Recommended)",
-                "Random Forest (100 Trees)": "Random Forest Ensemble",
-                "Decision Tree (Tuned)": "Decision Tree",
-                "Linear Regression (Baseline)": "Linear Baseline"
-            }
-            for train_name, meta in run_map.items():
-                display_label = disp_map.get(train_name, train_name)
-                try:
-                    loaded_model = mlflow.sklearn.load_model(meta["artifact_uri"])
-                    models[display_label] = loaded_model
-                    mlflow_meta[display_label] = meta["run_id"]
-                except Exception:
-                    pass
-    except Exception:
-        pass
-        
-    # 2. Secondary: Fallback to local .joblib files
+    # 1. Primary: Load models directly from local compressed joblib binaries
     candidate_joblibs = [
         ("Gradient Boosting (Recommended)", "model_hist_gradient_boosting.joblib"),
         ("Random Forest Ensemble", "model_random_forest.joblib"),
@@ -125,19 +114,39 @@ def load_all_artifacts():
         ("Linear Baseline", "model_linear.joblib")
     ]
     for display_name, file_name in candidate_joblibs:
-        if display_name not in models:
-            f_path = os.path.join(HERE, file_name)
-            if os.path.exists(f_path):
-                try:
-                    models[display_name] = joblib.load(f_path)
-                except Exception:
-                    pass
-                    
-    # 3. Fallback to default rent_model.joblib if needed
-    if not models:
+        f_path = os.path.join(HERE, file_name)
+        if os.path.exists(f_path):
+            try:
+                models[display_name] = joblib.load(f_path)
+            except Exception:
+                pass
+                
+    # 2. Fallback to default rent_model.joblib if needed
+    if "Gradient Boosting (Recommended)" not in models:
         default_model_path = os.path.join(HERE, "rent_model.joblib")
         if os.path.exists(default_model_path):
-            models["Gradient Boosting (Recommended)"] = joblib.load(default_model_path)
+            try:
+                models["Gradient Boosting (Recommended)"] = joblib.load(default_model_path)
+            except Exception:
+                pass
+
+    # 3. Optional: Read MLflow run metadata if tracking DB is present
+    try:
+        if os.path.exists(DB_PATH) and os.path.exists(os.path.join(HERE, "..", "mlruns")):
+            run_map_path = os.path.join(HERE, "mlflow_run_map.joblib")
+            if os.path.exists(run_map_path):
+                run_map = joblib.load(run_map_path)
+                disp_map = {
+                    "Hist Gradient Boosting (Tuned)": "Gradient Boosting (Recommended)",
+                    "Random Forest (100 Trees)": "Random Forest Ensemble",
+                    "Decision Tree (Tuned)": "Decision Tree",
+                    "Linear Regression (Baseline)": "Linear Baseline"
+                }
+                for train_name, meta in run_map.items():
+                    display_label = disp_map.get(train_name, train_name)
+                    mlflow_meta[display_label] = meta["run_id"]
+    except Exception:
+        pass
             
     return models, scaler, num_cols, columns, state_geo, city_data, mlflow_meta
 
@@ -270,17 +279,28 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ---------- Prediction Engine ----------
 feat_row = build_feature_vector()
 
-# Compute predictions across all models
+# Compute predictions across all models safely
 all_preds = {}
 for m_display, m_obj in models.items():
-    pred_log = m_obj.predict(feat_row)[0]
-    all_preds[m_display] = max(100.0, float(np.expm1(pred_log)))
+    try:
+        pred_log = m_obj.predict(feat_row)[0]
+        all_preds[m_display] = max(100.0, float(np.expm1(pred_log)))
+    except Exception:
+        pass
 
-# Determine Active Model
-primary_model_name = selected_option
+# Safe fallback if no model predictions generated
+if not all_preds:
+    all_preds["Market Average Baseline"] = float(city_med)
 
+# Determine Active Model safely without KeyError
+if selected_option in all_preds:
+    primary_model_name = selected_option
+elif all_preds:
+    primary_model_name = list(all_preds.keys())[0]
+else:
+    primary_model_name = "Market Average Baseline"
 
-primary_pred = all_preds[primary_model_name]
+primary_pred = all_preds.get(primary_model_name, float(city_med))
 lower_bound = primary_pred * 0.90
 upper_bound = primary_pred * 1.10
 price_per_sqft = primary_pred / square_feet

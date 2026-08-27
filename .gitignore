@@ -244,3 +244,7 @@ mlflow.db
 /rent_model.joblib
 /model_columns.joblib
 /state_geo.joblib
+
+# Ignore single raw unchunked RF binary in git (use .part* chunks instead)
+streamlit/model_random_forest.joblib
+!streamlit/model_random_forest.joblib.part*
