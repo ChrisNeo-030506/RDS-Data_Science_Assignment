@@ -75,15 +75,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-import mlflow
-import mlflow.sklearn
-
-DB_PATH = os.path.join(HERE, "..", "mlflow.db")
-MLFLOW_URI = f"sqlite:///{DB_PATH}" if os.path.exists(DB_PATH) else f"sqlite:///{os.path.join(HERE, 'mlflow.db')}"
-
 import glob
 
-# ---------- Load Trained Artifacts (Local Compressed Joblib + Optional MLflow) ----------
+# ---------- Load Trained Artifacts ----------
 @st.cache_resource
 def load_all_artifacts():
     # Auto-reconstruct any split chunked model binaries (e.g. Full-Depth Random Forest)
@@ -104,7 +98,6 @@ def load_all_artifacts():
     city_data = joblib.load(os.path.join(HERE, "city_geo.joblib"))
     
     models = {}
-    mlflow_meta = {}
     
     # 1. Primary: Load models directly from local compressed joblib binaries
     candidate_joblibs = [
@@ -129,28 +122,10 @@ def load_all_artifacts():
                 models["Gradient Boosting (Recommended)"] = joblib.load(default_model_path)
             except Exception:
                 pass
-
-    # 3. Optional: Read MLflow run metadata if tracking DB is present
-    try:
-        if os.path.exists(DB_PATH) and os.path.exists(os.path.join(HERE, "..", "mlruns")):
-            run_map_path = os.path.join(HERE, "mlflow_run_map.joblib")
-            if os.path.exists(run_map_path):
-                run_map = joblib.load(run_map_path)
-                disp_map = {
-                    "Hist Gradient Boosting (Tuned)": "Gradient Boosting (Recommended)",
-                    "Random Forest (100 Trees)": "Random Forest Ensemble",
-                    "Decision Tree (Tuned)": "Decision Tree",
-                    "Linear Regression (Baseline)": "Linear Baseline"
-                }
-                for train_name, meta in run_map.items():
-                    display_label = disp_map.get(train_name, train_name)
-                    mlflow_meta[display_label] = meta["run_id"]
-    except Exception:
-        pass
             
-    return models, scaler, num_cols, columns, state_geo, city_data, mlflow_meta
+    return models, scaler, num_cols, columns, state_geo, city_data
 
-models, scaler, num_cols, columns, state_geo, city_data, mlflow_meta = load_all_artifacts()
+models, scaler, num_cols, columns, state_geo, city_data = load_all_artifacts()
 
 states = sorted(state_geo.index)
 city_table = city_data.get("city_table", pd.DataFrame())

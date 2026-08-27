@@ -3,12 +3,11 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-App%20Live-FF4B4B.svg)](https://streamlit.io/)
 [![Scikit-Learn](https://img.shields.io/badge/Scikit--Learn-ML%20Pipeline-F7931E.svg)](https://scikit-learn.org/)
-[![MLflow](https://img.shields.io/badge/MLflow-Experiment%20Tracking-0194E2.svg)](https://mlflow.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **BMDS2003 Data Science Project — Group 4**
 
-An end-to-end data science regression project that predicts monthly apartment rental prices (USD) across the United States. Following the standard **CRISP-DM** methodology, this repository covers everything from raw data ingestion, exploratory data analysis, and advanced feature engineering to training 4 machine learning models, logging experiments with MLflow, and deploying a modern interactive **Streamlit web application**.
+An end-to-end data science regression project that predicts monthly apartment rental prices (USD) across the United States. Following the standard **CRISP-DM** methodology, this repository covers everything from raw data ingestion, exploratory data analysis, and advanced feature engineering to training 4 machine learning models and deploying a modern interactive **Streamlit web application**.
 
 ---
 
@@ -21,9 +20,8 @@ An end-to-end data science regression project that predicts monthly apartment re
   - [Step 1: Clone Repository & Navigate](#step-1-clone-repository--navigate)
   - [Step 2: Environment Setup & Installation](#step-2-environment-setup--installation)
   - [Step 3: Launch the Streamlit Web App](#step-3-launch-the-streamlit-web-app)
-  - [Step 4: Run / Retrain Models with MLflow Pipeline](#step-4-run--retrain-models-with-mlflow-pipeline)
+  - [Step 4: Run / Retrain Models Pipeline](#step-4-run--retrain-models-pipeline)
   - [Step 5: Run the Full CRISP-DM Notebook](#step-5-run-the-full-crisp-dm-notebook)
-- [MLflow Experiment Tracking & Model Registry Guide](#-mlflow-experiment-tracking--model-registry-guide)
 - [CRISP-DM Workflow Breakdown](#-crisp-dm-workflow-breakdown)
 - [Model Performance Benchmark](#-model-performance-benchmark)
 - [Streamlit Dashboard Features](#-streamlit-dashboard-features)
@@ -57,8 +55,6 @@ RDS-Data_Science_Assignment/
 ├── .gitignore                                # Git ignore rules (virtual environments, cache, models)
 ├── .gitattributes                            # Normalization rules for repo line endings & binaries
 │
-├── mlflow.db                                 # SQLite database storing MLflow experiment tracking & model registry
-├── mlruns/                                   # MLflow artifact storage (contains all 4 model binaries & metadata)
 ├── eda_graphs/                               # Visualizations generated during Phase 2 (EDA)
 │   ├── eda_price_hist.png                    # Distribution of monthly rent (right-skewed)
 │   ├── eda_boxplots.png                      # Boxplots of rent & square feet (IQR justification)
@@ -81,11 +77,15 @@ RDS-Data_Science_Assignment/
 │   └── m4_abs_error_hist.png                 # Model 4 (Hist Gradient Boosting): Absolute errors
 │
 └── streamlit/                                # Interactive Deployment Dashboard & Pipeline
-    ├── app.py                                # Main Streamlit web app (loads models via MLflow Registry)
-    ├── train_model.py                        # Automated MLflow training, registration & artifact export pipeline
+    ├── app.py                                # Main Streamlit web app (multi-model consensus & geo-autofill)
+    ├── train_model.py                        # Automated training, evaluation & artifact export pipeline
     ├── requirements.txt                      # App-specific dependencies
     ├── README.md                             # Streamlit sub-module guide
-    ├── mlflow_run_map.joblib                 # Mapping connecting Streamlit UI to active MLflow Model Run IDs
+    ├── rent_model.joblib                     # Production default model (Hist Gradient Boosting)
+    ├── model_hist_gradient_boosting.joblib   # Hist Gradient Boosting model binary
+    ├── model_random_forest.joblib.part*      # Chunked Full-Depth Random Forest model (< 50MB per part)
+    ├── model_decision_tree.joblib            # Decision Tree model binary
+    ├── model_linear.joblib                   # Baseline Linear Regression model binary
     ├── scaler.joblib                         # Trained StandardScaler instance
     ├── num_cols.joblib                       # Continuous feature schema
     ├── model_columns.joblib                  # One-hot aligned column layout
@@ -201,23 +201,16 @@ The application will launch in your default web browser at:
 
 ---
 
-### Step 4: Run / Retrain Models with MLflow Pipeline
+### Step 4: Run / Retrain Models Pipeline
 
-To retrain all 4 machine learning models from scratch, recalculate scaling parameters, log experiment runs to MLflow, and regenerate all `.joblib` artifacts:
+To retrain all 4 machine learning models from scratch, recalculate scaling parameters, and regenerate all `.joblib` production artifacts:
 
 ```bash
 # Run training script from project root
 python streamlit/train_model.py
 ```
 
-#### Inspect Experiments with MLflow UI:
-The training script automatically logs all hyperparameters, evaluation metrics (MAE, RMSE, MAPE, $R^2$, Within $\pm 10\%$, Within $\pm 20\%$) to a local SQLite database (`mlflow.db`).
-
-To open the interactive MLflow tracking dashboard:
-```bash
-mlflow ui --backend-store-uri sqlite:///mlflow.db
-```
-Open **`http://localhost:5000`** in your browser to compare training runs, metrics, and logs.
+The script trains all 4 models, evaluates metrics ($R^2$, MAE, RMSE, MAPE), and exports production binaries. For large models like the 100-Tree Random Forest, it automatically splits the binary into GitHub-safe $< 50\text{ MB}$ chunks (`.part0`, `.part1`, `.part2`) which are reassembled seamlessly by Streamlit.
 
 ---
 
@@ -238,74 +231,8 @@ Select **Cell → Run All** to execute all steps sequentially.
 #### Option B: Google Colab (Cloud, Zero-Install)
 1. Navigate to [Google Colab](https://colab.research.google.com/).
 2. Click **File → Upload notebook** and select `BMDS2003_Group4_notebook.ipynb`.
----
-
-## 🔬 MLflow Experiment Tracking & Model Registry Guide
-
-MLflow is integrated into this project to manage the complete model lifecycle: experiment comparison, metric tracking, hyperparameter logging, model artifact storage, and model versioning.
-
-### 1. Start the MLflow UI Server
-
-To launch the MLflow web dashboard from your project root:
-
-```bash
-# Start MLflow pointing to the project's SQLite database
-mlflow ui --backend-store-uri sqlite:///mlflow.db
-```
-
-*To run on a custom port (e.g. 5001) if port 5000 is occupied:*
-```bash
-mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001
-```
-
-Once started, open your browser and navigate to:
-👉 **`http://localhost:5000`**
-
----
-
-### 2. How to View Experiments & Compare Runs
-
-1. **Select Experiment**: In the left sidebar under **Experiments**, click on **`Apartment_Rent_Prediction`**.
-2. **View Run History**: You will see all recorded training runs:
-   - `Production_Hist Gradient Boosting (Tuned)`
-   - `Production_Random Forest (100 Trees)`
-   - `Production_Decision Tree (Tuned)`
-   - `Production_Linear Regression (Baseline)`
-   - `Production_Metadata_Preprocessors`
-3. **Compare Models**:
-   - Check the boxes next to multiple runs.
-   - Click the **Compare** button at the top to inspect side-by-side metric tables (MAE, RMSE, MAPE, $R^2$), difference charts, and hyperparameter impact graphs (scatter / contour / parallel coordinates plots).
-
----
-
-### 3. How to Explore the MLflow Model Registry
-
-Click on the **Models** tab in the top navigation bar to view registered model packages:
-
-| Registered Model Name | Deployed Version | Target Algorithm |
-| :--- | :---: | :--- |
-| **`ApartmentRent_hist_gradient_boosting`** | `Version 1` | Primary Deployed Model (Best overall $R^2 = 0.8500$) |
-| **`ApartmentRent_random_forest`** | `Version 1` | 100-Tree Random Forest Ensemble |
-| **`ApartmentRent_decision_tree`** | `Version 1` | Tuned Decision Tree |
-| **`ApartmentRent_linear`** | `Version 1` | Baseline Linear Model |
-
-Click on any model name to inspect its **version history**, **model lineage**, **schema signature** (input features & output format), and **exact training run ID**.
-
----
-
-### 4. Inspecting Logged Artifacts in MLflow
-
-Click on any individual run (e.g. `Production_Hist Gradient Boosting (Tuned)`) and scroll down to the **Artifacts** browser:
-
-- 📁 **`model/`**: Contains the complete packaged model:
-  - `MLmodel`: Standard MLflow model metadata configuration.
-  - `model.pkl`: Serialized Scikit-Learn model binary.
-  - `conda.yaml` & `requirements.txt`: Exact environment specifications for 100% reproducible serving.
-- 📁 **`metadata/`** & **`preprocessors/`** (in `Production_Metadata_Preprocessors`):
-  - `scaler.joblib`: Trained `StandardScaler` object.
-  - `city_geo.joblib`: Spatial coordinates and city price lookup tables.
-  - `model_columns.joblib`: Feature column alignment schema.
-  - `mlflow_run_map.joblib`: Mapping linking Streamlit runtime to MLflow model URIs.
+3. In the Colab sidebar, click the **Folder icon 📁 → Upload to session storage** and upload `apartments_for_rent_classified_100K.csv`.
+4. Run all cells with **Runtime → Run all** (`Ctrl + F9` / `Cmd + F9`).
 
 ---
 
