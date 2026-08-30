@@ -47,9 +47,7 @@ MODEL_COLORS = {
     "Decision Tree": "#F59E0B",
     "Linear Regression (Baseline)": "#64748B",
     "Linear Baseline": "#64748B",
-    "Linear Regression": "#64748B",
-    "Stacking Ensemble (LR + DT + RF + HGB)": "#8B5CF6",
-    "Stacking Ensemble": "#8B5CF6"
+    "Linear Regression": "#64748B"
 }
 
 def apply_plotly_styling(fig, height=420, title=""):
@@ -491,31 +489,6 @@ df_diag = load_diagnostic_dataset()
 states = sorted(state_geo.index)
 city_table = city_data.get("city_table", pd.DataFrame())
 
-# Helper: Compute Stacking Prediction via RidgeCV Meta-Learner Weights
-def predict_stacking_ensemble(feat_vector, force_rf=False):
-    """
-    Combines base learners using RidgeCV meta-estimator weights from BMDS2003 notebook:
-    Intercept: 0.0039, LR: -0.0948, DT: -0.0964, RF: 0.5025, HGB: 0.6950
-    """
-    try:
-        p_lr = models["Linear Regression (Baseline)"].predict(feat_vector)[0]
-        p_dt = models["Decision Tree (Tuned)"].predict(feat_vector)[0]
-        p_hgb = models["Hist Gradient Boosting (Tuned)"].predict(feat_vector)[0]
-        
-        if force_rf:
-            rf_obj = get_random_forest_model()
-            p_rf = rf_obj.predict(feat_vector)[0] if rf_obj is not None else p_hgb
-        else:
-            p_rf = p_hgb
-
-        stack_log = 0.0039 - (0.0948 * p_lr) - (0.0964 * p_dt) + (0.5025 * p_rf) + (0.6950 * p_hgb)
-        return max(100.0, float(np.expm1(stack_log)))
-    except Exception:
-        # Fallback to HGB
-        if "Hist Gradient Boosting (Tuned)" in models:
-            return max(100.0, float(np.expm1(models["Hist Gradient Boosting (Tuned)"].predict(feat_vector)[0])))
-        return 1350.0
-
 # =====================================================================
 #                          SIDEBAR CONTROLS
 # =====================================================================
@@ -523,7 +496,6 @@ st.sidebar.markdown('## <i class="bi bi-sliders2" style="color:#38BDF8; vertical
 
 model_options = [
     "Hist Gradient Boosting (Tuned) [Recommended]",
-    "Stacking Ensemble (Bonus Meta-Learner)",
     "Random Forest (100 Trees)",
     "Decision Tree (Tuned)",
     "Linear Regression (Baseline)"
@@ -646,7 +618,7 @@ with tab_predict:
 
     # Load active models for prediction (lazy load RF on demand)
     active_models = dict(models)
-    if selected_option.startswith("Random Forest") or selected_option.startswith("Stacking"):
+    if selected_option.startswith("Random Forest"):
         rf_m = get_random_forest_model()
         if rf_m is not None:
             active_models["Random Forest (100 Trees)"] = rf_m
@@ -659,17 +631,11 @@ with tab_predict:
         except Exception:
             pass
 
-    # Add Stacking Ensemble prediction
-    is_stacking_opt = selected_option.startswith("Stacking")
-    all_preds["Stacking Ensemble"] = predict_stacking_ensemble(feat_row, force_rf=is_stacking_opt)
-
     if not all_preds:
         all_preds["Market Average Baseline"] = float(city_med)
 
     primary_model_key = "Hist Gradient Boosting (Tuned)"
-    if selected_option == "Stacking Ensemble (Bonus Meta-Learner)" or selected_option == "Stacking Ensemble":
-        primary_model_key = "Stacking Ensemble"
-    elif selected_option in all_preds:
+    if selected_option in all_preds:
         primary_model_key = selected_option
     elif selected_option.startswith("Random Forest"):
         primary_model_key = "Random Forest (100 Trees)"
@@ -768,9 +734,7 @@ with tab_predict:
 
         for s in sqft_range:
             row_s = build_feature_vector(sqft=s)
-            if primary_model_key == "Stacking Ensemble":
-                curve_preds.append(predict_stacking_ensemble(row_s))
-            elif active_model:
+            if active_model:
                 p_log = active_model.predict(row_s)[0]
                 curve_preds.append(max(100.0, float(np.expm1(p_log))))
             else:
@@ -826,9 +790,7 @@ with tab_predict:
             test_count = sum(test_dict.values())
             row_test = build_feature_vector(amen_count=test_count, amen_map=test_dict)
 
-            if primary_model_key == "Stacking Ensemble":
-                sim_val = predict_stacking_ensemble(row_test)
-            elif active_model:
+            if active_model:
                 sim_val = max(100.0, float(np.expm1(active_model.predict(row_test)[0])))
             else:
                 sim_val = base_val
@@ -1589,8 +1551,7 @@ with tab_models:
             "Model 4: Hist Gradient Boosting (Tuned & Regularized)",
             "Model 3: Random Forest (100 Trees, max_depth=25)",
             "Model 2: Decision Tree (Tuned: depth=16, min_leaf=10)",
-            "Model 1: Linear Regression (Baseline)",
-            "Model 5: Stacking Ensemble (LR + DT + RF + HGB Meta-Learner)"
+            "Model 1: Linear Regression (Baseline)"
         ],
         index=0
     )
@@ -1599,8 +1560,7 @@ with tab_models:
         "Model 1: Linear Regression (Baseline)": ("linear", "Linear Regression", "#64748B"),
         "Model 2: Decision Tree (Tuned: depth=16, min_leaf=10)": ("dt", "Decision Tree", "#F59E0B"),
         "Model 3: Random Forest (100 Trees, max_depth=25)": ("rf", "Random Forest", "#3B82F6"),
-        "Model 4: Hist Gradient Boosting (Tuned & Regularized)": ("hgb", "Hist Gradient Boosting", "#10B981"),
-        "Model 5: Stacking Ensemble (LR + DT + RF + HGB Meta-Learner)": ("stack", "Stacking Ensemble", "#8B5CF6")
+        "Model 4: Hist Gradient Boosting (Tuned & Regularized)": ("hgb", "Hist Gradient Boosting", "#10B981")
     }
 
     m_key, m_title, m_theme_color = model_key_map[selected_diag_model]
@@ -1610,8 +1570,7 @@ with tab_models:
         "linear": {"R²": "0.6583", "MAE": "$217.83", "RMSE": "$304.25", "MAPE": "16.07%", "Within ±10%": "43.2%", "Within ±20%": "71.1%"},
         "dt":     {"R²": "0.7352", "MAE": "$187.52", "RMSE": "$267.86", "MAPE": "14.16%", "Within ±10%": "50.2%", "Within ±20%": "77.4%"},
         "rf":     {"R²": "0.8318", "MAE": "$140.55", "RMSE": "$213.45", "MAPE": "10.60%", "Within ±10%": "64.6%", "Within ±20%": "87.1%"},
-        "hgb":    {"R²": "0.8463", "MAE": "$140.07", "RMSE": "$204.04", "MAPE": "10.45%", "Within ±10%": "62.8%", "Within ±20%": "86.7%"},
-        "stack":  {"R²": "0.8467", "MAE": "$138.31", "RMSE": "$203.80", "MAPE": "10.35%", "Within ±10%": "64.1%", "Within ±20%": "87.2%"}
+        "hgb":    {"R²": "0.8463", "MAE": "$140.07", "RMSE": "$204.04", "MAPE": "10.45%", "Within ±10%": "62.8%", "Within ±20%": "86.7%"}
     }
 
     cur_m = perf_metrics[m_key]
@@ -1628,316 +1587,261 @@ with tab_models:
     # -------------------------------------------------------------
     # MODEL-SPECIFIC DIAGNOSTIC PANELS MATCHING NOTEBOOK
     # -------------------------------------------------------------
-    if m_key == "stack":
-        # Stacking Ensemble Deep-Dive
-        st.markdown("<div class='section-header'><i class='bi bi-layers-half'></i> Stacking Ensemble Meta-Learner Architecture</div>", unsafe_allow_html=True)
-        st_c1, st_c2 = st.columns(2)
-        with st_c1:
-            st.markdown("""
-            <div class='eda-card'>
-                <div class='eda-card-header'>
-                    <span class='eda-pill'>Meta-Learner Coefficients</span>
-                    <div class='eda-card-title'>RidgeCV Meta-Learner Weight Distribution</div>
-                </div>
-            """, unsafe_allow_html=True)
-            meta_weights = pd.DataFrame([
-                {"Base Learner": "Hist Gradient Boosting", "Weight": 0.6950, "Role": "Primary Predictor (Fast Histogram Split)"},
-                {"Base Learner": "Random Forest", "Weight": 0.5025, "Role": "Variance Reduction & Outlier Buffer"},
-                {"Base Learner": "Decision Tree", "Weight": -0.0964, "Role": "High-Bias Residual Correction"},
-                {"Base Learner": "Linear Regression", "Weight": -0.0948, "Role": "Linear Trend Adjustment"}
-            ])
-            fig_meta = px.bar(
-                meta_weights,
-                x="Weight",
-                y="Base Learner",
-                orientation='h',
-                color="Weight",
-                color_continuous_scale="Viridis",
-                text="Weight"
-            )
-            fig_meta.update_traces(texttemplate="%{x:+.4f}", textposition="auto")
-            fig_meta.update_layout(xaxis_title="RidgeCV Meta-Coefficient Weight", yaxis_title="")
-            apply_plotly_styling(fig_meta, height=320)
-            st.plotly_chart(fig_meta, use_container_width=True)
-            st.markdown("""
-                <div class='insight-box'>
-                    💡 <b>Stacking Insight:</b> The meta-regressor assigns heavy positive weights to <b>Hist Gradient Boosting (0.695)</b> and <b>Random Forest (0.503)</b>, while slightly penalizing simpler single-tree and linear baselines to maximize out-of-fold generalization.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+    # Standard 4 Models Diagnostic Grid
+    diag_col1, diag_col2 = st.columns(2)
 
-        with st_c2:
-            st.markdown("""
-            <div class='eda-card'>
-                <div class='eda-card-header'>
-                    <span class='eda-pill'>Ensemble Synergy</span>
-                    <div class='eda-card-title'>Why Stacking Outperforms Individual Learners</div>
-                </div>
-                <div style='color:#CBD5E1; font-size:0.9rem; line-height:1.6; margin-top:8px;'>
-                    <p>• <b>Peak Holdout Performance:</b> Delivers lowest MAE (<b>$138.31</b>), lowest RMSE (<b>$203.80</b>), and highest R² (<b>0.8467</b>) across all evaluated architectures.</p>
-                    <p>• <b>Cross-Fold Orthogonality:</b> The RidgeCV meta-estimator learns optimal weighting based on 3-fold cross-validation out-of-fold predictions, mitigating individual base-learner biases.</p>
-                    <p>• <b>Production Trade-Off:</b> While Stacking achieves highest theoretical precision (+0.04% R² vs HGB), <b>Hist Gradient Boosting</b> is selected as the primary standalone deployment model due to sub-5ms latency and >90% lower memory overhead.</p>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    else:
-        # Standard 4 Models Diagnostic Grid
-        diag_col1, diag_col2 = st.columns(2)
-
-        with diag_col1:
-            if not df_diag.empty and f"pred_{m_key}" in df_diag.columns:
-                # Predicted vs Actual (or Hexbin for RF)
-                if m_key == "rf":
-                    fig_pva = go.Figure()
-                    min_val = min(df_diag["price"].min(), df_diag[f"pred_{m_key}"].min())
-                    max_val = max(df_diag["price"].max(), df_diag[f"pred_{m_key}"].max())
-                    fig_pva.add_trace(go.Scatter(
-                        x=[min_val, max_val], y=[min_val, max_val],
-                        mode='lines', line=dict(color="#EF4444", dash="dash", width=2), name="Identity (y = x)"
-                    ))
-                    fig_pva.add_trace(go.Histogram2d(
-                        x=df_diag["price"],
-                        y=df_diag[f"pred_{m_key}"],
-                        nbinsx=40, nbinsy=40,
-                        colorscale="Blues",
-                        colorbar=dict(title="Log Density")
-                    ))
-                    fig_pva.update_layout(xaxis_title="Actual Monthly Rent ($ USD)", yaxis_title="Predicted Monthly Rent ($ USD)")
-                    apply_plotly_styling(fig_pva, height=360, title="Random Forest: Hexbin / 2D Density Valuation Plot")
-                    st.plotly_chart(fig_pva, use_container_width=True)
-                else:
-                    fig_pva = go.Figure()
-                    min_val = min(df_diag["price"].min(), df_diag[f"pred_{m_key}"].min())
-                    max_val = max(df_diag["price"].max(), df_diag[f"pred_{m_key}"].max())
-                    fig_pva.add_trace(go.Scatter(
-                        x=[min_val, max_val], y=[min_val, max_val],
-                        mode='lines', line=dict(color="#EF4444", dash="dash", width=2), name="Perfect Prediction"
-                    ))
-                    fig_pva.add_trace(go.Scatter(
-                        x=df_diag["price"],
-                        y=df_diag[f"pred_{m_key}"],
-                        mode='markers',
-                        marker=dict(color=df_diag[f"abs_err_{m_key}"], colorscale="Viridis", size=5, opacity=0.6, colorbar=dict(title="Error ($)")),
-                        name="Predictions",
-                        hovertemplate="Actual: <b>$%{x:,.0f}</b><br>Predicted: <b>$%{y:,.0f}</b><br>Error: <b>$%{marker.color:,.0f}</b><extra></extra>"
-                    ))
-                    fig_pva.update_layout(xaxis_title="Actual Monthly Rent ($ USD)", yaxis_title="Predicted Monthly Rent ($ USD)")
-                    apply_plotly_styling(fig_pva, height=360, title=f"{m_title}: Predicted vs. Actual Rent")
-                    st.plotly_chart(fig_pva, use_container_width=True)
-
-        with diag_col2:
-            if not df_diag.empty and f"res_{m_key}" in df_diag.columns:
-                if m_key == "rf":
-                    # RF: Residual by Bedroom Count (Matching notebook cell 73)
-                    bed_cats_mapped = df_diag["bedrooms"].apply(
-                        lambda x: "0 (Studio)" if x == 0 else ("1 Bed" if x == 1 else ("2 Bed" if x == 2 else ("3 Bed" if x == 3 else ("4 Bed" if x == 4 else "5+ Bed"))))
-                    )
-                    df_rf_bed = pd.DataFrame({"bed_cat": bed_cats_mapped, "res_rf": df_diag["res_rf"]})
-                    fig_res_bed = px.box(
-                        df_rf_bed,
-                        x="bed_cat",
-                        y="res_rf",
-                        color="bed_cat",
-                        category_orders={"bed_cat": ["0 (Studio)", "1 Bed", "2 Bed", "3 Bed", "4 Bed", "5+ Bed"]}
-                    )
-                    fig_res_bed.add_hline(y=0, line_dash="dash", line_color="#EF4444", line_width=1.5)
-                    fig_res_bed.update_layout(showlegend=False, xaxis_title="Bedroom Count", yaxis_title="Residual Error ($ USD)")
-                    apply_plotly_styling(fig_res_bed, height=360, title="Random Forest: Residuals Grouped by Bedroom Count")
-                    st.plotly_chart(fig_res_bed, use_container_width=True)
-                else:
-                    # Residual vs Fitted Plot
-                    fig_res = go.Figure()
-                    fig_res.add_hline(y=0, line_dash="dash", line_color="#EF4444", line_width=2)
-                    fig_res.add_trace(go.Scatter(
-                        x=df_diag[f"pred_{m_key}"],
-                        y=df_diag[f"res_{m_key}"],
-                        mode='markers',
-                        marker=dict(color=m_theme_color, size=5, opacity=0.55),
-                        name="Residuals",
-                        hovertemplate="Predicted: <b>$%{x:,.0f}</b><br>Residual: <b>$%{y:,.0f}</b><extra></extra>"
-                    ))
-                    fig_res.update_layout(xaxis_title="Predicted Monthly Rent ($ USD)", yaxis_title="Residual (Actual − Predicted) ($)")
-                    apply_plotly_styling(fig_res, height=360, title=f"{m_title}: Residual vs. Fitted Plot")
-                    st.plotly_chart(fig_res, use_container_width=True)
-
-        diag_col3, diag_col4 = st.columns(2)
-        with diag_col3:
-            if m_key == "hgb":
-                # HGB: Convergence Learning Curve (Matching notebook cell 78)
-                iter_x = np.arange(1, 120)
-                # Authentic simulated training loss curve with early stopping stabilization
-                train_loss = 0.045 + 0.12 * np.exp(-iter_x / 25) + np.random.RandomState(42).normal(0, 0.0005, len(iter_x))
-                val_loss = 0.052 + 0.11 * np.exp(-iter_x / 22) + np.random.RandomState(43).normal(0, 0.0007, len(iter_x))
-                
-                fig_lc = go.Figure()
-                fig_lc.add_trace(go.Scatter(x=iter_x, y=train_loss, mode='lines', name="Training Loss (Log MSE)", line=dict(color="#0284c7", width=2)))
-                fig_lc.add_trace(go.Scatter(x=iter_x, y=val_loss, mode='lines', name="Validation Loss (Log MSE)", line=dict(color="#10b981", width=2)))
-                fig_lc.add_vline(x=95, line_dash="dash", line_color="#ef4444", annotation_text="Early Stopping (Iter 95)")
-                fig_lc.update_layout(xaxis_title="Boosting Iterations (Trees)", yaxis_title="Loss (Log Space MSE)")
-                apply_plotly_styling(fig_lc, height=340, title="Hist Gradient Boosting: Convergence Learning Curve")
-                st.plotly_chart(fig_lc, use_container_width=True)
-
-            elif m_key == "dt":
-                # DT: Validation Curve (Bias-Variance Diagnostic - Matching notebook cell 85)
-                depths = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
-                train_r2 = [0.48, 0.62, 0.71, 0.78, 0.84, 0.89, 0.93, 0.96, 0.98, 0.99]
-                cv_r2 =    [0.47, 0.60, 0.68, 0.72, 0.74, 0.748, 0.747, 0.748, 0.742, 0.735]
-                
-                fig_vc = go.Figure()
-                fig_vc.add_trace(go.Scatter(x=depths, y=train_r2, mode='lines+markers', name="Train R² (Memorization)", line=dict(color="#0284c7", width=2.5)))
-                fig_vc.add_trace(go.Scatter(x=depths, y=cv_r2, mode='lines+markers', name="3-Fold CV R² (Generalization)", line=dict(color="#10b981", width=2.5)))
-                fig_vc.add_vrect(x0=2, x1=6, fillcolor="rgba(239,68,68,0.12)", line_width=0, annotation_text="High Bias (Underfitting)", annotation_position="top left")
-                fig_vc.add_vrect(x0=12, x1=16, fillcolor="rgba(16,185,129,0.12)", line_width=0, annotation_text="Optimal Depth (16)", annotation_position="top")
-                fig_vc.add_vrect(x0=16, x1=20, fillcolor="rgba(245,158,11,0.12)", line_width=0, annotation_text="High Variance (Overfitting)", annotation_position="top right")
-                fig_vc.update_layout(xaxis_title="Maximum Tree Depth (max_depth)", yaxis_title="R² Score", yaxis_range=[0.4, 1.02])
-                apply_plotly_styling(fig_vc, height=340, title="Decision Tree: Bias-Variance Validation Curve")
-                st.plotly_chart(fig_vc, use_container_width=True)
-
-            elif m_key == "rf":
-                # RF: Top 8 Feature Importances (MDI) (Matching notebook cell 72 & m3_feature_importance.png)
-                rf_mdi_data = [
-                    {"Feature": "Amenity Count", "Importance": 1.8},
-                    {"Feature": "Sqft / Bathroom", "Importance": 2.3},
-                    {"Feature": "Sqft / Bedroom", "Importance": 3.1},
-                    {"Feature": "State (Location)", "Importance": 3.6},
-                    {"Feature": "Latitude", "Importance": 5.0},
-                    {"Feature": "Longitude", "Importance": 6.2},
-                    {"Feature": "Square Feet", "Importance": 14.8},
-                    {"Feature": "City Median Price", "Importance": 56.9}
-                ]
-                df_rf_imp = pd.DataFrame(rf_mdi_data).sort_values("Importance", ascending=True)
-                fig_rf_imp = px.bar(
-                    df_rf_imp,
-                    x="Importance",
-                    y="Feature",
-                    orientation='h',
-                    color="Importance",
-                    color_continuous_scale="Blues",
-                    text="Importance"
-                )
-                fig_rf_imp.update_traces(
-                    texttemplate="%{x:.1f}%",
-                    textposition="outside",
-                    cliponaxis=False,
-                    textfont=dict(color="#F8FAFC", size=11)
-                )
-                fig_rf_imp.update_layout(
-                    xaxis_title="Relative Feature Importance (%)",
-                    yaxis_title="",
-                    xaxis=dict(range=[0, df_rf_imp["Importance"].max() * 1.18])
-                )
-                apply_plotly_styling(fig_rf_imp, height=340, title="Random Forest: Top 8 Feature Importances (MDI)")
-                st.plotly_chart(fig_rf_imp, use_container_width=True)
-
-            else:
-                # Residual Histogram
-                fig_res_hist = go.Figure()
-                fig_res_hist.add_trace(go.Histogram(
-                    x=df_diag[f"res_{m_key}"],
-                    nbinsx=60,
-                    marker=dict(color=m_theme_color, line=dict(color="#FFFFFF", width=0.5)),
-                    name="Residual Distribution",
-                    hovertemplate="Residual: <b>$%{x:,.0f}</b><br>Frequency: <b>%{y:,}</b><extra></extra>"
-                ))
-                fig_res_hist.update_layout(xaxis_title="Residual Error ($ USD)", yaxis_title="Frequency", bargap=0.05)
-                apply_plotly_styling(fig_res_hist, height=340, title=f"{m_title}: Residual Error Histogram")
-                st.plotly_chart(fig_res_hist, use_container_width=True)
-
-        with diag_col4:
+    with diag_col1:
+        if not df_diag.empty and f"pred_{m_key}" in df_diag.columns:
+            # Predicted vs Actual (or Hexbin for RF)
             if m_key == "rf":
-                # RF: Permutation vs MDI Feature Importance Comparison (Matching notebook cell 91 & m3_permutation_vs_mdi.png)
-                df_perm = pd.DataFrame([
-                    {"Feature": "Amenity Count", "MDI (%)": 1.7, "Permutation (%)": 0.0},
-                    {"Feature": "Sqft / Bathroom", "MDI (%)": 2.5, "Permutation (%)": 0.0},
-                    {"Feature": "Sqft / Bedroom", "MDI (%)": 3.3, "Permutation (%)": 1.4},
-                    {"Feature": "State (Location)", "MDI (%)": 3.8, "Permutation (%)": 3.4},
-                    {"Feature": "Latitude", "MDI (%)": 5.3, "Permutation (%)": 4.5},
-                    {"Feature": "Longitude", "MDI (%)": 6.7, "Permutation (%)": 10.5},
-                    {"Feature": "Square Feet", "MDI (%)": 15.8, "Permutation (%)": 19.9},
-                    {"Feature": "City Median Price", "MDI (%)": 60.8, "Permutation (%)": 58.0}
-                ]).sort_values("Permutation (%)", ascending=True)
-
-                fig_perm = go.Figure()
-                fig_perm.add_trace(go.Bar(
-                    y=df_perm["Feature"],
-                    x=df_perm["MDI (%)"],
-                    orientation='h',
-                    name="MDI (Impurity Gain)",
-                    marker_color="#1E3A8A",
-                    text=[f"{v:.1f}%" for v in df_perm["MDI (%)"]],
-                    textposition="inside",
-                    textfont=dict(color="#FFFFFF", size=10)
+                fig_pva = go.Figure()
+                min_val = min(df_diag["price"].min(), df_diag[f"pred_{m_key}"].min())
+                max_val = max(df_diag["price"].max(), df_diag[f"pred_{m_key}"].max())
+                fig_pva.add_trace(go.Scatter(
+                    x=[min_val, max_val], y=[min_val, max_val],
+                    mode='lines', line=dict(color="#EF4444", dash="dash", width=2), name="Identity (y = x)"
                 ))
-                fig_perm.add_trace(go.Bar(
-                    y=df_perm["Feature"],
-                    x=df_perm["Permutation (%)"],
-                    orientation='h',
-                    name="Permutation (Held-out Test)",
-                    marker_color="#F59E0B",
-                    text=[f"{v:.1f}%" for v in df_perm["Permutation (%)"]],
-                    textposition="inside",
-                    textfont=dict(color="#FFFFFF", size=10)
+                fig_pva.add_trace(go.Histogram2d(
+                    x=df_diag["price"],
+                    y=df_diag[f"pred_{m_key}"],
+                    nbinsx=40, nbinsy=40,
+                    colorscale="Blues",
+                    colorbar=dict(title="Log Density")
                 ))
-                fig_perm.update_layout(
-                    barmode='group',
-                    xaxis_title="Relative Importance Share (%)",
-                    yaxis_title="",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                )
-                apply_plotly_styling(fig_perm, height=340, title="Random Forest: MDI vs. Permutation Importance")
-                st.plotly_chart(fig_perm, use_container_width=True)
-
-            elif m_key in ["dt", "hgb"]:
-                importance_data = {
-                    "dt": [
-                        {"Feature": "City Median Price", "Importance": 36.2},
-                        {"Feature": "Square Feet", "Importance": 18.5},
-                        {"Feature": "Longitude", "Importance": 7.8},
-                        {"Feature": "Latitude", "Importance": 6.4},
-                        {"Feature": "Bathrooms", "Importance": 5.1},
-                        {"Feature": "Sqft / Bedroom", "Importance": 4.8},
-                        {"Feature": "Bedrooms", "Importance": 3.9},
-                        {"Feature": "Sqft / Bathroom", "Importance": 3.1},
-                        {"Feature": "Amenity Count", "Importance": 2.6},
-                        {"Feature": "In-Unit Washer", "Importance": 1.8}
-                    ],
-                    "hgb": [
-                        {"Feature": "City Median Price", "Importance": 29.8},
-                        {"Feature": "Square Feet", "Importance": 19.4},
-                        {"Feature": "Longitude", "Importance": 10.1},
-                        {"Feature": "Latitude", "Importance": 8.5},
-                        {"Feature": "Bathrooms", "Importance": 6.2},
-                        {"Feature": "Sqft / Bedroom", "Importance": 5.5},
-                        {"Feature": "Sqft / Bathroom", "Importance": 4.1},
-                        {"Feature": "Bedrooms", "Importance": 3.8},
-                        {"Feature": "Amenity Count", "Importance": 2.9},
-                        {"Feature": "In-Unit Washer", "Importance": 1.9}
-                    ]
-                }
-                df_imp = pd.DataFrame(importance_data[m_key]).sort_values("Importance", ascending=True)
-                fig_imp = px.bar(df_imp, x="Importance", y="Feature", orientation='h', color="Importance", color_continuous_scale="Blues", text="Importance")
-                fig_imp.update_traces(texttemplate="%{x:.1f}%", textposition="outside", cliponaxis=False, textfont=dict(color="#F8FAFC", size=11))
-                fig_imp.update_layout(xaxis_title="Relative Feature Importance (%)", yaxis_title="", xaxis=dict(range=[0, df_imp["Importance"].max() * 1.18]))
-                apply_plotly_styling(fig_imp, height=340, title=f"{m_title}: Top Feature Importances")
-                st.plotly_chart(fig_imp, use_container_width=True)
-
+                fig_pva.update_layout(xaxis_title="Actual Monthly Rent ($ USD)", yaxis_title="Predicted Monthly Rent ($ USD)")
+                apply_plotly_styling(fig_pva, height=360, title="Random Forest: Hexbin / 2D Density Valuation Plot")
+                st.plotly_chart(fig_pva, use_container_width=True)
             else:
-                # Linear: MAE Across Price Tiers
-                price_bins = pd.cut(df_diag["price"], bins=[0, 1000, 2000, 3000, 5000], labels=["<$1,000", "$1k–$2k", "$2k–$3k", "$3k+"])
-                tier_mae = pd.DataFrame({"Price Tier": price_bins, f"abs_err_{m_key}": df_diag[f"abs_err_{m_key}"]}).groupby("Price Tier", observed=False).mean().reset_index()
-                fig_tier = px.bar(tier_mae, x="Price Tier", y=f"abs_err_{m_key}", color="Price Tier", color_discrete_sequence=["#3B82F6", "#10B981", "#F59E0B", "#EF4444"], text=f"abs_err_{m_key}")
-                fig_tier.update_traces(texttemplate="$%{y:.1f}", textposition="auto", textfont=dict(size=12, color="#FFFFFF"))
-                fig_tier.update_layout(xaxis_title="Rental Price Tier", yaxis_title="Mean Absolute Error ($ USD)", showlegend=False)
-                apply_plotly_styling(fig_tier, height=340, title="Linear Regression: MAE Across Price Tiers")
-                st.plotly_chart(fig_tier, use_container_width=True)
+                fig_pva = go.Figure()
+                min_val = min(df_diag["price"].min(), df_diag[f"pred_{m_key}"].min())
+                max_val = max(df_diag["price"].max(), df_diag[f"pred_{m_key}"].max())
+                fig_pva.add_trace(go.Scatter(
+                    x=[min_val, max_val], y=[min_val, max_val],
+                    mode='lines', line=dict(color="#EF4444", dash="dash", width=2), name="Perfect Prediction"
+                ))
+                fig_pva.add_trace(go.Scatter(
+                    x=df_diag["price"],
+                    y=df_diag[f"pred_{m_key}"],
+                    mode='markers',
+                    marker=dict(color=df_diag[f"abs_err_{m_key}"], colorscale="Viridis", size=5, opacity=0.6, colorbar=dict(title="Error ($)")),
+                    name="Predictions",
+                    hovertemplate="Actual: <b>$%{x:,.0f}</b><br>Predicted: <b>$%{y:,.0f}</b><br>Error: <b>$%{marker.color:,.0f}</b><extra></extra>"
+                ))
+                fig_pva.update_layout(xaxis_title="Actual Monthly Rent ($ USD)", yaxis_title="Predicted Monthly Rent ($ USD)")
+                apply_plotly_styling(fig_pva, height=360, title=f"{m_title}: Predicted vs. Actual Rent")
+                st.plotly_chart(fig_pva, use_container_width=True)
 
+    with diag_col2:
+        if not df_diag.empty and f"res_{m_key}" in df_diag.columns:
+            if m_key == "rf":
+                # RF: Residual by Bedroom Count (Matching notebook cell 73)
+                bed_cats_mapped = df_diag["bedrooms"].apply(
+                    lambda x: "0 (Studio)" if x == 0 else ("1 Bed" if x == 1 else ("2 Bed" if x == 2 else ("3 Bed" if x == 3 else ("4 Bed" if x == 4 else "5+ Bed"))))
+                )
+                df_rf_bed = pd.DataFrame({"bed_cat": bed_cats_mapped, "res_rf": df_diag["res_rf"]})
+                fig_res_bed = px.box(
+                    df_rf_bed,
+                    x="bed_cat",
+                    y="res_rf",
+                    color="bed_cat",
+                    category_orders={"bed_cat": ["0 (Studio)", "1 Bed", "2 Bed", "3 Bed", "4 Bed", "5+ Bed"]}
+                )
+                fig_res_bed.add_hline(y=0, line_dash="dash", line_color="#EF4444", line_width=1.5)
+                fig_res_bed.update_layout(showlegend=False, xaxis_title="Bedroom Count", yaxis_title="Residual Error ($ USD)")
+                apply_plotly_styling(fig_res_bed, height=360, title="Random Forest: Residuals Grouped by Bedroom Count")
+                st.plotly_chart(fig_res_bed, use_container_width=True)
+            else:
+                # Residual vs Fitted Plot
+                fig_res = go.Figure()
+                fig_res.add_hline(y=0, line_dash="dash", line_color="#EF4444", line_width=2)
+                fig_res.add_trace(go.Scatter(
+                    x=df_diag[f"pred_{m_key}"],
+                    y=df_diag[f"res_{m_key}"],
+                    mode='markers',
+                    marker=dict(color=m_theme_color, size=5, opacity=0.55),
+                    name="Residuals",
+                    hovertemplate="Predicted: <b>$%{x:,.0f}</b><br>Residual: <b>$%{y:,.0f}</b><extra></extra>"
+                ))
+                fig_res.update_layout(xaxis_title="Predicted Monthly Rent ($ USD)", yaxis_title="Residual (Actual − Predicted) ($)")
+                apply_plotly_styling(fig_res, height=360, title=f"{m_title}: Residual vs. Fitted Plot")
+                st.plotly_chart(fig_res, use_container_width=True)
+
+    diag_col3, diag_col4 = st.columns(2)
+    with diag_col3:
+        if m_key == "hgb":
+            # HGB: Convergence Learning Curve (Matching notebook cell 78)
+            iter_x = np.arange(1, 120)
+            train_loss = 0.045 + 0.12 * np.exp(-iter_x / 25) + np.random.RandomState(42).normal(0, 0.0005, len(iter_x))
+            val_loss = 0.052 + 0.11 * np.exp(-iter_x / 22) + np.random.RandomState(43).normal(0, 0.0007, len(iter_x))
+            
+            fig_lc = go.Figure()
+            fig_lc.add_trace(go.Scatter(x=iter_x, y=train_loss, mode='lines', name="Training Loss (Log MSE)", line=dict(color="#0284c7", width=2)))
+            fig_lc.add_trace(go.Scatter(x=iter_x, y=val_loss, mode='lines', name="Validation Loss (Log MSE)", line=dict(color="#10b981", width=2)))
+            fig_lc.add_vline(x=95, line_dash="dash", line_color="#ef4444", annotation_text="Early Stopping (Iter 95)")
+            fig_lc.update_layout(xaxis_title="Boosting Iterations (Trees)", yaxis_title="Loss (Log Space MSE)")
+            apply_plotly_styling(fig_lc, height=340, title="Hist Gradient Boosting: Convergence Learning Curve")
+            st.plotly_chart(fig_lc, use_container_width=True)
+
+        elif m_key == "dt":
+            # DT: Validation Curve (Bias-Variance Diagnostic - Matching notebook cell 85)
+            depths = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+            train_r2 = [0.48, 0.62, 0.71, 0.78, 0.84, 0.89, 0.93, 0.96, 0.98, 0.99]
+            cv_r2 =    [0.47, 0.60, 0.68, 0.72, 0.74, 0.748, 0.747, 0.748, 0.742, 0.735]
+            
+            fig_vc = go.Figure()
+            fig_vc.add_trace(go.Scatter(x=depths, y=train_r2, mode='lines+markers', name="Train R² (Memorization)", line=dict(color="#0284c7", width=2.5)))
+            fig_vc.add_trace(go.Scatter(x=depths, y=cv_r2, mode='lines+markers', name="3-Fold CV R² (Generalization)", line=dict(color="#10b981", width=2.5)))
+            fig_vc.add_vrect(x0=2, x1=6, fillcolor="rgba(239,68,68,0.12)", line_width=0, annotation_text="High Bias (Underfitting)", annotation_position="top left")
+            fig_vc.add_vrect(x0=12, x1=16, fillcolor="rgba(16,185,129,0.12)", line_width=0, annotation_text="Optimal Depth (16)", annotation_position="top")
+            fig_vc.add_vrect(x0=16, x1=20, fillcolor="rgba(245,158,11,0.12)", line_width=0, annotation_text="High Variance (Overfitting)", annotation_position="top right")
+            fig_vc.update_layout(xaxis_title="Maximum Tree Depth (max_depth)", yaxis_title="R² Score", yaxis_range=[0.4, 1.02])
+            apply_plotly_styling(fig_vc, height=340, title="Decision Tree: Bias-Variance Validation Curve")
+            st.plotly_chart(fig_vc, use_container_width=True)
+
+        elif m_key == "rf":
+            # RF: Top 8 Feature Importances (MDI) (Matching notebook cell 72 & m3_feature_importance.png)
+            rf_mdi_data = [
+                {"Feature": "Amenity Count", "Importance": 1.8},
+                {"Feature": "Sqft / Bathroom", "Importance": 2.3},
+                {"Feature": "Sqft / Bedroom", "Importance": 3.1},
+                {"Feature": "State (Location)", "Importance": 3.6},
+                {"Feature": "Latitude", "Importance": 5.0},
+                {"Feature": "Longitude", "Importance": 6.2},
+                {"Feature": "Square Feet", "Importance": 14.8},
+                {"Feature": "City Median Price", "Importance": 56.9}
+            ]
+            df_rf_imp = pd.DataFrame(rf_mdi_data).sort_values("Importance", ascending=True)
+            fig_rf_imp = px.bar(
+                df_rf_imp,
+                x="Importance",
+                y="Feature",
+                orientation='h',
+                color="Importance",
+                color_continuous_scale="Blues",
+                text="Importance"
+            )
+            fig_rf_imp.update_traces(
+                texttemplate="%{x:.1f}%",
+                textposition="outside",
+                cliponaxis=False,
+                textfont=dict(color="#F8FAFC", size=11)
+            )
+            fig_rf_imp.update_layout(
+                xaxis_title="Relative Feature Importance (%)",
+                yaxis_title="",
+                xaxis=dict(range=[0, df_rf_imp["Importance"].max() * 1.18])
+            )
+            apply_plotly_styling(fig_rf_imp, height=340, title="Random Forest: Top 8 Feature Importances (MDI)")
+            st.plotly_chart(fig_rf_imp, use_container_width=True)
+
+        else:
+            # Residual Histogram
+            fig_res_hist = go.Figure()
+            fig_res_hist.add_trace(go.Histogram(
+                x=df_diag[f"res_{m_key}"],
+                nbinsx=60,
+                marker=dict(color=m_theme_color, line=dict(color="#FFFFFF", width=0.5)),
+                name="Residual Distribution",
+                hovertemplate="Residual: <b>$%{x:,.0f}</b><br>Frequency: <b>%{y:,}</b><extra></extra>"
+            ))
+            fig_res_hist.update_layout(xaxis_title="Residual Error ($ USD)", yaxis_title="Frequency", bargap=0.05)
+            apply_plotly_styling(fig_res_hist, height=340, title=f"{m_title}: Residual Error Histogram")
+            st.plotly_chart(fig_res_hist, use_container_width=True)
+
+    with diag_col4:
         if m_key == "rf":
-            st.markdown("""
-            <div class='insight-box' style='margin-top:10px;'>
-                💡 <b>MDI vs. Permutation Diagnostic Insight:</b> Mean Decrease in Impurity (MDI) exhibits known statistical bias towards continuous high-cardinality predictors (e.g. <code>city_median_price</code> at 60.8%). Evaluating permutation importance on held-out test data confirms that <code>city_median_price</code> (58.0%) and <code>square_feet</code> (19.9%) remain the dominant genuine valuation drivers, while adjusting continuous variance weights appropriately.
-            </div>
-            """, unsafe_allow_html=True)
+            # RF: Permutation vs MDI Feature Importance Comparison (Matching notebook cell 91 & m3_permutation_vs_mdi.png)
+            df_perm = pd.DataFrame([
+                {"Feature": "Amenity Count", "MDI (%)": 1.7, "Permutation (%)": 0.0},
+                {"Feature": "Sqft / Bathroom", "MDI (%)": 2.5, "Permutation (%)": 0.0},
+                {"Feature": "Sqft / Bedroom", "MDI (%)": 3.3, "Permutation (%)": 1.4},
+                {"Feature": "State (Location)", "MDI (%)": 3.8, "Permutation (%)": 3.4},
+                {"Feature": "Latitude", "MDI (%)": 5.3, "Permutation (%)": 4.5},
+                {"Feature": "Longitude", "MDI (%)": 6.7, "Permutation (%)": 10.5},
+                {"Feature": "Square Feet", "MDI (%)": 15.8, "Permutation (%)": 19.9},
+                {"Feature": "City Median Price", "MDI (%)": 60.8, "Permutation (%)": 58.0}
+            ]).sort_values("Permutation (%)", ascending=True)
+
+            fig_perm = go.Figure()
+            fig_perm.add_trace(go.Bar(
+                y=df_perm["Feature"],
+                x=df_perm["MDI (%)"],
+                orientation='h',
+                name="MDI (Impurity Gain)",
+                marker_color="#1E3A8A",
+                text=[f"{v:.1f}%" for v in df_perm["MDI (%)"]],
+                textposition="inside",
+                textfont=dict(color="#FFFFFF", size=10)
+            ))
+            fig_perm.add_trace(go.Bar(
+                y=df_perm["Feature"],
+                x=df_perm["Permutation (%)"],
+                orientation='h',
+                name="Permutation (Held-out Test)",
+                marker_color="#F59E0B",
+                text=[f"{v:.1f}%" for v in df_perm["Permutation (%)"]],
+                textposition="inside",
+                textfont=dict(color="#FFFFFF", size=10)
+            ))
+            fig_perm.update_layout(
+                barmode='group',
+                xaxis_title="Relative Importance Share (%)",
+                yaxis_title="",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            apply_plotly_styling(fig_perm, height=340, title="Random Forest: MDI vs. Permutation Importance")
+            st.plotly_chart(fig_perm, use_container_width=True)
+
+        elif m_key in ["dt", "hgb"]:
+            importance_data = {
+                "dt": [
+                    {"Feature": "City Median Price", "Importance": 36.2},
+                    {"Feature": "Square Feet", "Importance": 18.5},
+                    {"Feature": "Longitude", "Importance": 7.8},
+                    {"Feature": "Latitude", "Importance": 6.4},
+                    {"Feature": "Bathrooms", "Importance": 5.1},
+                    {"Feature": "Sqft / Bedroom", "Importance": 4.8},
+                    {"Feature": "Bedrooms", "Importance": 3.9},
+                    {"Feature": "Sqft / Bathroom", "Importance": 3.1},
+                    {"Feature": "Amenity Count", "Importance": 2.6},
+                    {"Feature": "In-Unit Washer", "Importance": 1.8}
+                ],
+                "hgb": [
+                    {"Feature": "City Median Price", "Importance": 29.8},
+                    {"Feature": "Square Feet", "Importance": 19.4},
+                    {"Feature": "Longitude", "Importance": 10.1},
+                    {"Feature": "Latitude", "Importance": 8.5},
+                    {"Feature": "Bathrooms", "Importance": 6.2},
+                    {"Feature": "Sqft / Bedroom", "Importance": 5.5},
+                    {"Feature": "Sqft / Bathroom", "Importance": 4.1},
+                    {"Feature": "Bedrooms", "Importance": 3.8},
+                    {"Feature": "Amenity Count", "Importance": 2.9},
+                    {"Feature": "In-Unit Washer", "Importance": 1.9}
+                ]
+            }
+            df_imp = pd.DataFrame(importance_data[m_key]).sort_values("Importance", ascending=True)
+            fig_imp = px.bar(df_imp, x="Importance", y="Feature", orientation='h', color="Importance", color_continuous_scale="Blues", text="Importance")
+            fig_imp.update_traces(texttemplate="%{x:.1f}%", textposition="outside", cliponaxis=False, textfont=dict(color="#F8FAFC", size=11))
+            fig_imp.update_layout(xaxis_title="Relative Feature Importance (%)", yaxis_title="", xaxis=dict(range=[0, df_imp["Importance"].max() * 1.18]))
+            apply_plotly_styling(fig_imp, height=340, title=f"{m_title}: Top Feature Importances")
+            st.plotly_chart(fig_imp, use_container_width=True)
+
+        else:
+            # Linear: MAE Across Price Tiers
+            price_bins = pd.cut(df_diag["price"], bins=[0, 1000, 2000, 3000, 5000], labels=["<$1,000", "$1k–$2k", "$2k–$3k", "$3k+"])
+            tier_mae = pd.DataFrame({"Price Tier": price_bins, f"abs_err_{m_key}": df_diag[f"abs_err_{m_key}"]}).groupby("Price Tier", observed=False).mean().reset_index()
+            fig_tier = px.bar(tier_mae, x="Price Tier", y=f"abs_err_{m_key}", color="Price Tier", color_discrete_sequence=["#3B82F6", "#10B981", "#F59E0B", "#EF4444"], text=f"abs_err_{m_key}")
+            fig_tier.update_traces(texttemplate="$%{y:.1f}", textposition="auto", textfont=dict(size=12, color="#FFFFFF"))
+            fig_tier.update_layout(xaxis_title="Rental Price Tier", yaxis_title="Mean Absolute Error ($ USD)", showlegend=False)
+            apply_plotly_styling(fig_tier, height=340, title="Linear Regression: MAE Across Price Tiers")
+            st.plotly_chart(fig_tier, use_container_width=True)
+
+    if m_key == "rf":
+        st.markdown("""
+        <div class='insight-box' style='margin-top:10px;'>
+            💡 <b>MDI vs. Permutation Diagnostic Insight:</b> Mean Decrease in Impurity (MDI) exhibits known statistical bias towards continuous high-cardinality predictors (e.g. <code>city_median_price</code> at 60.8%). Evaluating permutation importance on held-out test data confirms that <code>city_median_price</code> (58.0%) and <code>square_feet</code> (19.9%) remain the dominant genuine valuation drivers, while adjusting continuous variance weights appropriately.
+        </div>
+        """, unsafe_allow_html=True)
 
 
 # =====================================================================
@@ -1949,18 +1853,6 @@ with tab_eval:
     eval_table = pd.DataFrame([
         {
             "Rank": "1",
-            "Model Architecture": "Stacking Ensemble (LR+DT+RF+HGB)",
-            "R² Score": "0.8467",
-            "MAE ($)": "$138.31",
-            "RMSE ($)": "$203.80",
-            "MAPE (%)": "10.35%",
-            "±10% Accuracy": "64.1%",
-            "±20% Accuracy": "87.2%",
-            "Model Size": "~102 MB",
-            "Status": "Bonus Multi-Learner"
-        },
-        {
-            "Rank": "2",
             "Model Architecture": "Hist Gradient Boosting (Tuned)",
             "R² Score": "0.8463",
             "MAE ($)": "$140.07",
@@ -1972,7 +1864,7 @@ with tab_eval:
             "Status": "Primary Deployed Model"
         },
         {
-            "Rank": "3",
+            "Rank": "2",
             "Model Architecture": "Random Forest (100 Trees)",
             "R² Score": "0.8318",
             "MAE ($)": "$140.55",
@@ -1980,11 +1872,11 @@ with tab_eval:
             "MAPE (%)": "10.60%",
             "±10% Accuracy": "64.6%",
             "±20% Accuracy": "87.1%",
-            "Model Size": "~95 MB",
+            "Model Size": "~38.9 MB",
             "Status": "Ensemble Benchmark"
         },
         {
-            "Rank": "4",
+            "Rank": "3",
             "Model Architecture": "Decision Tree (Tuned)",
             "R² Score": "0.7352",
             "MAE ($)": "$187.52",
@@ -1996,7 +1888,7 @@ with tab_eval:
             "Status": "Single Tree Baseline"
         },
         {
-            "Rank": "5",
+            "Rank": "4",
             "Model Architecture": "Linear Regression (Baseline)",
             "R² Score": "0.6583",
             "MAE ($)": "$217.83",
@@ -2017,16 +1909,16 @@ with tab_eval:
     st.markdown("<div class='section-header'><i class='bi bi-bar-chart-line'></i> Multi-Metric Model Performance Comparison (4 Diagnostic Dimensions)</div>", unsafe_allow_html=True)
 
     comp_c1, comp_c2 = st.columns(2)
-    models_list = ["Linear Reg.", "Decision Tree", "Random Forest", "Hist Grad Boost", "Stacking"]
-    colors_list = ["#94A3B8", "#38BDF8", "#3B82F6", "#10B981", "#8B5CF6"]
+    models_list = ["Linear Reg.", "Decision Tree", "Random Forest", "Hist Grad Boost"]
+    colors_list = ["#94A3B8", "#38BDF8", "#3B82F6", "#10B981"]
 
     with comp_c1:
         # 1. R2 Comparison
         fig_r2 = go.Figure(go.Bar(
             x=models_list,
-            y=[0.6580, 0.7381, 0.8309, 0.8451, 0.8467],
+            y=[0.6580, 0.7381, 0.8309, 0.8451],
             marker=dict(color=colors_list),
-            text=["0.6580", "0.7381", "0.8309", "0.8451", "<b>0.8467</b>"],
+            text=["0.6580", "0.7381", "0.8309", "<b>0.8451</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>R² Score: <b>%{y:.4f}</b><extra></extra>"
         ))
@@ -2039,9 +1931,9 @@ with tab_eval:
         # 2. MAE Comparison
         fig_mae = go.Figure(go.Bar(
             x=models_list,
-            y=[217.92, 185.87, 140.62, 141.21, 138.31],
+            y=[217.92, 185.87, 140.62, 141.21],
             marker=dict(color=colors_list),
-            text=["$217.92", "$185.87", "$140.62", "$141.21", "<b>$138.31</b>"],
+            text=["$217.92", "$185.87", "$140.62", "<b>$141.21</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>MAE: <b>$%{y:.2f}</b><extra></extra>"
         ))
@@ -2055,9 +1947,9 @@ with tab_eval:
         # 3. RMSE Comparison
         fig_rmse = go.Figure(go.Bar(
             x=models_list,
-            y=[304.41, 266.35, 214.01, 204.88, 203.80],
+            y=[304.41, 266.35, 214.01, 204.88],
             marker=dict(color=colors_list),
-            text=["$304.41", "$266.35", "$214.01", "$204.88", "<b>$203.80</b>"],
+            text=["$304.41", "$266.35", "$214.01", "<b>$204.88</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>RMSE: <b>$%{y:.2f}</b><extra></extra>"
         ))
@@ -2069,9 +1961,9 @@ with tab_eval:
         # 4. MAPE (%) Comparison (Matching notebook cell 83 panel 4)
         fig_mape = go.Figure(go.Bar(
             x=models_list,
-            y=[16.07, 13.98, 10.62, 10.52, 10.35],
+            y=[16.07, 13.98, 10.62, 10.52],
             marker=dict(color=colors_list),
-            text=["16.07%", "13.98%", "10.62%", "10.52%", "<b>10.35%</b>"],
+            text=["16.07%", "13.98%", "10.62%", "<b>10.52%</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>MAPE: <b>%{y:.2f}%</b><extra></extra>"
         ))
@@ -2086,17 +1978,17 @@ with tab_eval:
     fig_tol.add_trace(go.Bar(
         name="Within ±10% Accuracy",
         x=models_list,
-        y=[43.0, 51.1, 64.6, 62.2, 64.1],
+        y=[43.0, 51.1, 64.6, 62.2],
         marker=dict(color="#3B82F6"),
-        text=["43.0%", "51.1%", "64.6%", "62.2%", "64.1%"],
+        text=["43.0%", "51.1%", "64.6%", "62.2%"],
         textposition='auto'
     ))
     fig_tol.add_trace(go.Bar(
         name="Within ±20% Accuracy",
         x=models_list,
-        y=[71.3, 78.0, 85.6, 86.6, 87.2],
+        y=[71.3, 78.0, 85.6, 86.6],
         marker=dict(color="#10B981"),
-        text=["71.3%", "78.0%", "85.6%", "86.6%", "87.2%"],
+        text=["71.3%", "78.0%", "85.6%", "86.6%"],
         textposition='auto'
     ))
     fig_tol.add_hline(y=85.0, line_dash="dash", line_color="#EF4444", annotation_text="Target Benchmark (±20% ≥ 85%)")
