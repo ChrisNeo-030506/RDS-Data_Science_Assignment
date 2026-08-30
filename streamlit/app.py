@@ -367,6 +367,19 @@ st.markdown("""
     .insight-box b {
         color: #38BDF8;
     }
+
+    /* Sidebar Checkbox & Expander Label Styling */
+    [data-testid="stSidebar"] [data-testid="stCheckbox"] label p {
+        font-size: 0.84rem !important;
+        font-weight: 500 !important;
+        color: #E2E8F0 !important;
+        white-space: nowrap !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] {
+        background: rgba(30, 41, 59, 0.4) !important;
+        border: 1px solid rgba(148, 163, 184, 0.15) !important;
+        border-radius: 12px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -507,21 +520,18 @@ fee = st.sidebar.selectbox("Broker Fee Required", ["No", "Yes"], index=0)
 st.sidebar.markdown("---")
 st.sidebar.markdown('### <i class="bi bi-stars" style="color:#F59E0B; vertical-align:middle; margin-right:6px;"></i> Luxury Amenities', unsafe_allow_html=True)
 with st.sidebar.expander("Configure Property Amenities", expanded=True):
-    col_a, col_b = st.columns(2)
-    with col_a:
-        has_washer     = st.checkbox("In-Unit Washer", value=True)
-        has_dryer      = st.checkbox("Dryer", value=True)
-        has_ac         = st.checkbox("Air Conditioning", value=True)
-        has_parking    = st.checkbox("Parking Space", value=True)
-        has_garage     = st.checkbox("Garage", value=False)
-        has_dishwasher = st.checkbox("Dishwasher", value=True)
-    with col_b:
-        has_pool       = st.checkbox("Swimming Pool", value=False)
-        has_gym        = st.checkbox("Fitness Center", value=False)
-        has_elevator   = st.checkbox("Elevator", value=False)
-        has_patio      = st.checkbox("Balcony / Patio", value=False)
-        has_gated      = st.checkbox("Gated Community", value=False)
-        has_fireplace  = st.checkbox("Fireplace", value=False)
+    has_washer     = st.checkbox("In-Unit Washer", value=True)
+    has_dryer      = st.checkbox("Dryer", value=True)
+    has_ac         = st.checkbox("Air Conditioning", value=True)
+    has_dishwasher = st.checkbox("Dishwasher", value=True)
+    has_parking    = st.checkbox("Parking Space", value=True)
+    has_garage     = st.checkbox("Garage", value=False)
+    has_pool       = st.checkbox("Swimming Pool", value=False)
+    has_gym        = st.checkbox("Fitness Center", value=False)
+    has_elevator   = st.checkbox("Elevator", value=False)
+    has_patio      = st.checkbox("Balcony / Patio", value=False)
+    has_gated      = st.checkbox("Gated Community", value=False)
+    has_fireplace  = st.checkbox("Fireplace", value=False)
 
 amenities_dict = {
     "has_pool": has_pool, "has_gym": has_gym, "has_dishwasher": has_dishwasher,
