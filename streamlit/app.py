@@ -1733,6 +1733,42 @@ with tab_models:
                 apply_plotly_styling(fig_vc, height=340, title="Decision Tree: Bias-Variance Validation Curve")
                 st.plotly_chart(fig_vc, use_container_width=True)
 
+            elif m_key == "rf":
+                # RF: Top 8 Feature Importances (MDI) (Matching notebook cell 72 & m3_feature_importance.png)
+                rf_mdi_data = [
+                    {"Feature": "Amenity Count", "Importance": 1.8},
+                    {"Feature": "Sqft / Bathroom", "Importance": 2.3},
+                    {"Feature": "Sqft / Bedroom", "Importance": 3.1},
+                    {"Feature": "State (Location)", "Importance": 3.6},
+                    {"Feature": "Latitude", "Importance": 5.0},
+                    {"Feature": "Longitude", "Importance": 6.2},
+                    {"Feature": "Square Feet", "Importance": 14.8},
+                    {"Feature": "City Median Price", "Importance": 56.9}
+                ]
+                df_rf_imp = pd.DataFrame(rf_mdi_data).sort_values("Importance", ascending=True)
+                fig_rf_imp = px.bar(
+                    df_rf_imp,
+                    x="Importance",
+                    y="Feature",
+                    orientation='h',
+                    color="Importance",
+                    color_continuous_scale="Blues",
+                    text="Importance"
+                )
+                fig_rf_imp.update_traces(
+                    texttemplate="%{x:.1f}%",
+                    textposition="outside",
+                    cliponaxis=False,
+                    textfont=dict(color="#F8FAFC", size=11)
+                )
+                fig_rf_imp.update_layout(
+                    xaxis_title="Relative Feature Importance (%)",
+                    yaxis_title="",
+                    xaxis=dict(range=[0, df_rf_imp["Importance"].max() * 1.18])
+                )
+                apply_plotly_styling(fig_rf_imp, height=340, title="Random Forest: Top 8 Feature Importances (MDI)")
+                st.plotly_chart(fig_rf_imp, use_container_width=True)
+
             else:
                 # Residual Histogram
                 fig_res_hist = go.Figure()
@@ -1749,23 +1785,46 @@ with tab_models:
 
         with diag_col4:
             if m_key == "rf":
-                # RF: Permutation vs MDI Feature Importance Comparison (Matching notebook cell 91)
+                # RF: Permutation vs MDI Feature Importance Comparison (Matching notebook cell 91 & m3_permutation_vs_mdi.png)
                 df_perm = pd.DataFrame([
-                    {"Feature": "City Median Price", "MDI (%)": 60.8, "Permutation (%)": 58.0},
-                    {"Feature": "Square Feet", "MDI (%)": 15.8, "Permutation (%)": 19.9},
-                    {"Feature": "Longitude", "MDI (%)": 6.7, "Permutation (%)": 10.5},
-                    {"Feature": "Latitude", "MDI (%)": 5.3, "Permutation (%)": 4.5},
-                    {"Feature": "State (Location)", "MDI (%)": 3.8, "Permutation (%)": 3.4},
-                    {"Feature": "Sqft / Bedroom", "MDI (%)": 3.3, "Permutation (%)": 1.4},
+                    {"Feature": "Amenity Count", "MDI (%)": 1.7, "Permutation (%)": 0.0},
                     {"Feature": "Sqft / Bathroom", "MDI (%)": 2.5, "Permutation (%)": 0.0},
-                    {"Feature": "Amenity Count", "MDI (%)": 1.7, "Permutation (%)": 0.0}
+                    {"Feature": "Sqft / Bedroom", "MDI (%)": 3.3, "Permutation (%)": 1.4},
+                    {"Feature": "State (Location)", "MDI (%)": 3.8, "Permutation (%)": 3.4},
+                    {"Feature": "Latitude", "MDI (%)": 5.3, "Permutation (%)": 4.5},
+                    {"Feature": "Longitude", "MDI (%)": 6.7, "Permutation (%)": 10.5},
+                    {"Feature": "Square Feet", "MDI (%)": 15.8, "Permutation (%)": 19.9},
+                    {"Feature": "City Median Price", "MDI (%)": 60.8, "Permutation (%)": 58.0}
                 ]).sort_values("Permutation (%)", ascending=True)
 
                 fig_perm = go.Figure()
-                fig_perm.add_trace(go.Bar(y=df_perm["Feature"], x=df_perm["MDI (%)"], orientation='h', name="MDI (Gini Importance)", marker_color="#38BDF8"))
-                fig_perm.add_trace(go.Bar(y=df_perm["Feature"], x=df_perm["Permutation (%)"], orientation='h', name="Permutation (Held-out Test)", marker_color="#10B981"))
-                fig_perm.update_layout(barmode='group', xaxis_title="Feature Importance Share (%)", yaxis_title="")
-                apply_plotly_styling(fig_perm, height=340, title="Random Forest: Permutation vs. MDI Importance")
+                fig_perm.add_trace(go.Bar(
+                    y=df_perm["Feature"],
+                    x=df_perm["MDI (%)"],
+                    orientation='h',
+                    name="MDI (Impurity Gain)",
+                    marker_color="#1E3A8A",
+                    text=[f"{v:.1f}%" for v in df_perm["MDI (%)"]],
+                    textposition="inside",
+                    textfont=dict(color="#FFFFFF", size=10)
+                ))
+                fig_perm.add_trace(go.Bar(
+                    y=df_perm["Feature"],
+                    x=df_perm["Permutation (%)"],
+                    orientation='h',
+                    name="Permutation (Held-out Test)",
+                    marker_color="#F59E0B",
+                    text=[f"{v:.1f}%" for v in df_perm["Permutation (%)"]],
+                    textposition="inside",
+                    textfont=dict(color="#FFFFFF", size=10)
+                ))
+                fig_perm.update_layout(
+                    barmode='group',
+                    xaxis_title="Relative Importance Share (%)",
+                    yaxis_title="",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                apply_plotly_styling(fig_perm, height=340, title="Random Forest: MDI vs. Permutation Importance")
                 st.plotly_chart(fig_perm, use_container_width=True)
 
             elif m_key in ["dt", "hgb"]:
@@ -1812,6 +1871,13 @@ with tab_models:
                 fig_tier.update_layout(xaxis_title="Rental Price Tier", yaxis_title="Mean Absolute Error ($ USD)", showlegend=False)
                 apply_plotly_styling(fig_tier, height=340, title="Linear Regression: MAE Across Price Tiers")
                 st.plotly_chart(fig_tier, use_container_width=True)
+
+        if m_key == "rf":
+            st.markdown("""
+            <div class='insight-box' style='margin-top:10px;'>
+                💡 <b>MDI vs. Permutation Diagnostic Insight:</b> Mean Decrease in Impurity (MDI) exhibits known statistical bias towards continuous high-cardinality predictors (e.g. <code>city_median_price</code> at 60.8%). Evaluating permutation importance on held-out test data confirms that <code>city_median_price</code> (58.0%) and <code>square_feet</code> (19.9%) remain the dominant genuine valuation drivers, while adjusting continuous variance weights appropriately.
+            </div>
+            """, unsafe_allow_html=True)
 
 
 # =====================================================================
@@ -1887,81 +1953,96 @@ with tab_eval:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Section 2: Interactive Comparative Visualizations
-    st.markdown("<div class='section-header'><i class='bi bi-bar-chart-line'></i> Multi-Metric Performance Benchmark Matrix</div>", unsafe_allow_html=True)
+    # Section 2: Interactive Comparative Visualizations (Matching notebook cell 83 & model_comparison.png)
+    st.markdown("<div class='section-header'><i class='bi bi-bar-chart-line'></i> Multi-Metric Model Performance Comparison (4 Diagnostic Dimensions)</div>", unsafe_allow_html=True)
 
     comp_c1, comp_c2 = st.columns(2)
     models_list = ["Linear Reg.", "Decision Tree", "Random Forest", "Hist Grad Boost", "Stacking"]
-    colors_list = ["#64748B", "#F59E0B", "#3B82F6", "#10B981", "#8B5CF6"]
+    colors_list = ["#94A3B8", "#38BDF8", "#3B82F6", "#10B981", "#8B5CF6"]
 
     with comp_c1:
-        # R2 Comparison
+        # 1. R2 Comparison
         fig_r2 = go.Figure(go.Bar(
             x=models_list,
-            y=[0.6583, 0.7352, 0.8318, 0.8463, 0.8467],
+            y=[0.6580, 0.7381, 0.8309, 0.8451, 0.8467],
             marker=dict(color=colors_list),
-            text=["0.6583", "0.7352", "0.8318", "0.8463", "<b>0.8467</b>"],
+            text=["0.6580", "0.7381", "0.8309", "0.8451", "<b>0.8467</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>R² Score: <b>%{y:.4f}</b><extra></extra>"
         ))
         fig_r2.add_hline(y=0.80, line_dash="dash", line_color="#EF4444", annotation_text="Target Benchmark (R² ≥ 0.80)")
-        fig_r2.update_layout(yaxis_title="R² Score (Higher is Better)", yaxis_range=[0.5, 0.9])
-        apply_plotly_styling(fig_r2, height=320, title="R² Variance Explained Benchmark")
+        fig_r2.update_layout(yaxis_title="R² Score (Higher is Better)", yaxis_range=[0.5, 0.95])
+        apply_plotly_styling(fig_r2, height=330, title="Coefficient of Determination (R² Score) [Higher is Better]")
         st.plotly_chart(fig_r2, use_container_width=True)
 
     with comp_c2:
-        # MAE Comparison
+        # 2. MAE Comparison
         fig_mae = go.Figure(go.Bar(
             x=models_list,
-            y=[217.83, 187.52, 140.55, 140.07, 138.31],
+            y=[217.92, 185.87, 140.62, 141.21, 138.31],
             marker=dict(color=colors_list),
-            text=["$218", "$188", "$141", "$140", "<b>$138</b>"],
+            text=["$217.92", "$185.87", "$140.62", "$141.21", "<b>$138.31</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>MAE: <b>$%{y:.2f}</b><extra></extra>"
         ))
-        fig_mae.add_hline(y=150.0, line_dash="dash", line_color="#EF4444", annotation_text="Target Benchmark (MAE ≤ $150)")
-        fig_mae.update_layout(yaxis_title="Mean Absolute Error ($ USD) (Lower is Better)")
-        apply_plotly_styling(fig_mae, height=320, title="Mean Absolute Error (MAE) Benchmark")
+        fig_mae.add_hline(y=150.0, line_dash="dash", line_color="#EF4444", annotation_text="Success Target (< $150)")
+        fig_mae.update_layout(yaxis_title="MAE in USD (Lower is Better)", yaxis_range=[0, 250])
+        apply_plotly_styling(fig_mae, height=330, title="Mean Absolute Error (MAE in USD) [Lower is Better]")
         st.plotly_chart(fig_mae, use_container_width=True)
 
     comp_c3, comp_c4 = st.columns(2)
     with comp_c3:
-        # RMSE Comparison
+        # 3. RMSE Comparison
         fig_rmse = go.Figure(go.Bar(
             x=models_list,
-            y=[304.25, 267.86, 213.45, 204.04, 203.80],
+            y=[304.41, 266.35, 214.01, 204.88, 203.80],
             marker=dict(color=colors_list),
-            text=["$304", "$268", "$213", "$204", "<b>$204</b>"],
+            text=["$304.41", "$266.35", "$214.01", "$204.88", "<b>$203.80</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>RMSE: <b>$%{y:.2f}</b><extra></extra>"
         ))
-        fig_rmse.update_layout(yaxis_title="Root Mean Squared Error ($ USD)")
-        apply_plotly_styling(fig_rmse, height=320, title="Root Mean Squared Error (RMSE) Benchmark")
+        fig_rmse.update_layout(yaxis_title="RMSE in USD (Lower is Better)", yaxis_range=[0, 350])
+        apply_plotly_styling(fig_rmse, height=330, title="Root Mean Squared Error (RMSE in USD) [Lower is Better]")
         st.plotly_chart(fig_rmse, use_container_width=True)
 
     with comp_c4:
-        # Tolerance Accuracy
-        fig_tol = go.Figure()
-        fig_tol.add_trace(go.Bar(
-            name="Within ±10%",
+        # 4. MAPE (%) Comparison (Matching notebook cell 83 panel 4)
+        fig_mape = go.Figure(go.Bar(
             x=models_list,
-            y=[43.2, 50.2, 64.6, 62.8, 64.1],
-            marker=dict(color="#3B82F6"),
-            text=["43.2%", "50.2%", "64.6%", "62.8%", "64.1%"],
-            textposition='auto'
+            y=[16.07, 13.98, 10.62, 10.52, 10.35],
+            marker=dict(color=colors_list),
+            text=["16.07%", "13.98%", "10.62%", "10.52%", "<b>10.35%</b>"],
+            textposition='auto',
+            hovertemplate="Model: <b>%{x}</b><br>MAPE: <b>%{y:.2f}%</b><extra></extra>"
         ))
-        fig_tol.add_trace(go.Bar(
-            name="Within ±20%",
-            x=models_list,
-            y=[71.1, 77.4, 87.1, 86.7, 87.2],
-            marker=dict(color="#10B981"),
-            text=["71.1%", "77.4%", "87.1%", "86.7%", "87.2%"],
-            textposition='auto'
-        ))
-        fig_tol.add_hline(y=85.0, line_dash="dash", line_color="#EF4444", annotation_text="Target (±20% ≥ 85%)")
-        fig_tol.update_layout(barmode='group', yaxis_title="Percentage of Test Listings (%)")
-        apply_plotly_styling(fig_tol, height=320, title="Tolerance Band Accuracy (±10% and ±20%)")
-        st.plotly_chart(fig_tol, use_container_width=True)
+        fig_mape.update_layout(yaxis_title="MAPE % (Lower is Better)", yaxis_range=[0, 20])
+        apply_plotly_styling(fig_mape, height=330, title="Mean Absolute Percentage Error (MAPE) [Lower is Better]")
+        st.plotly_chart(fig_mape, use_container_width=True)
+
+    # Tolerance Accuracy Ribbon
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("#### Tolerance Band Valuation Accuracy (Within ±10% and ±20%)")
+    fig_tol = go.Figure()
+    fig_tol.add_trace(go.Bar(
+        name="Within ±10% Accuracy",
+        x=models_list,
+        y=[43.0, 51.1, 64.6, 62.2, 64.1],
+        marker=dict(color="#3B82F6"),
+        text=["43.0%", "51.1%", "64.6%", "62.2%", "64.1%"],
+        textposition='auto'
+    ))
+    fig_tol.add_trace(go.Bar(
+        name="Within ±20% Accuracy",
+        x=models_list,
+        y=[71.3, 78.0, 85.6, 86.6, 87.2],
+        marker=dict(color="#10B981"),
+        text=["71.3%", "78.0%", "85.6%", "86.6%", "87.2%"],
+        textposition='auto'
+    ))
+    fig_tol.add_hline(y=85.0, line_dash="dash", line_color="#EF4444", annotation_text="Target Benchmark (±20% ≥ 85%)")
+    fig_tol.update_layout(barmode='group', yaxis_title="Test Listings Share (%)", yaxis_range=[0, 100])
+    apply_plotly_styling(fig_tol, height=320, title="Tolerance Band Accuracy Benchmark (Within ±10% and ±20%)")
+    st.plotly_chart(fig_tol, use_container_width=True)
 
     st.markdown("---")
 
