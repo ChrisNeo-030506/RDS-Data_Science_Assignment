@@ -268,12 +268,12 @@ Evaluated on the 20% unseen test holdout set (~19,800 listings):
 
 | Model | Test $R^2$ | MAE (USD) | RMSE (USD) | MAPE (%) | Model Size | Deployment Status |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Linear Regression (Baseline)** | `0.6784` | `$242.81` | `$358.53` | `16.81%` | `< 3 KB` | Baseline Reference |
-| **Decision Tree (Tuned)** | `0.7539` | `$210.22` | `$313.64` | `14.89%` | `~0.5 MB` | Available in App |
-| **Random Forest (100 Trees)** | `0.8325` | `$159.65` | `$258.77` | `11.28%` | `~140 MB` | Available in App |
-| **Hist Gradient Boosting (Tuned)** | **`0.8500`** | **`$156.46`** | **`$244.83`** | **`10.95%`** | **`~7.2 MB`** | **Primary Deployed Model** |
+| **Linear Regression (Baseline)** | `0.6698` | `$217.15` | `$298.81` | `15.53%` | `< 3 KB` | Baseline Reference |
+| **Decision Tree (Tuned)** | `0.7497` | `$179.91` | `$260.67` | `13.20%` | `~153 KB` | Available in App |
+| **Random Forest (100 Trees)** | `0.8318` | `$140.55` | `$213.45` | `10.60%` | `~95 MB` | Available in App (Split Chunks) |
+| **Hist Gradient Boosting (Tuned)** | **`0.8463`** | **`$140.07`** | **`$204.04`** | **`10.37%`** | **`~3.1–6.9 MB`** | **Primary Deployed Model** |
 
-> **Architectural Decision**: Hist Gradient Boosting achieves the highest overall accuracy ($R^2 = 0.8500$, MAE = $\$156.46$) with **sub-millisecond inference** and a **~20× smaller memory footprint** (~7.2 MB vs ~140 MB for Random Forest), making it optimal for production deployment.
+> **Architectural Decision**: Hist Gradient Boosting achieves the highest overall accuracy ($R^2 = 0.8463$, MAE = $\$140.07$, RMSE = $\$204.04$, MAPE = $10.37\%$, $88.0\%$ within $\pm 20\%$) with **sub-5ms inference latency** and a **>93% smaller memory footprint** (~3.1–6.9 MB vs ~95 MB for Random Forest), making it optimal for production deployment.
 
 ---
 

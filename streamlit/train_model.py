@@ -4,6 +4,8 @@ train_model.py
 Trains all 4 machine learning models (Linear Baseline, Decision Tree, Random Forest, Hist Gradient Boosting)
 with advanced feature engineering, target log normalization (log1p), and feature standardization (StandardScaler).
 
+Ensures 100% pipeline consistency with BMDS2003_Group4_notebook.ipynb (k=1.5 IQR, identical cleaning sequence).
+
 Exports production .joblib binaries and metadata:
     model_linear.joblib                 - Model 1: Linear Regression (Baseline)
     model_decision_tree.joblib          - Model 2: Decision Tree (Tuned)
@@ -16,8 +18,10 @@ Exports production .joblib binaries and metadata:
     model_columns.joblib                - One-hot aligned feature names
     state_geo.joblib                    - Per-state median coordinates
     city_geo.joblib                     - Per-city metadata (state, coords, median price)
+    data/model_diag_sample.parquet      - Evaluation sample with actuals, predictions, and residuals for UI
 """
 import os
+import glob
 import pandas as pd
 import numpy as np
 import joblib
@@ -29,60 +33,73 @@ from sklearn.ensemble import RandomForestRegressor, HistGradientBoostingRegresso
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CSV  = os.path.join(HERE, "..", "apartments_for_rent_classified_100K.csv")
+ROOT = os.path.abspath(os.path.join(HERE, ".."))
+CSV  = os.path.join(ROOT, "apartments_for_rent_classified_100K.csv")
 
 print("Loading dataset...")
 df = pd.read_csv(CSV, sep=";", encoding="cp1252", low_memory=False)
 
-# ---------- Filter & Clean ----------
+# ---------- Step 3: Data Cleaning (Exact Notebook Alignment) ----------
+# 1. Filter monthly rentals & drop unnecessary metadata
 dc = df[df["price_type"] == "Monthly"].copy()
 dc = dc.drop(columns=["id", "category", "title", "body", "currency", "price_display",
                       "price_type", "address", "source", "time", "pets_allowed"])
 
-def iqr_bounds(series, k=3.0):
+# 2. Drop rows missing essential features & median imputation
+dc = dc.dropna(subset=["amenities", "cityname", "state", "latitude", "longitude"])
+dc["bathrooms"] = dc["bathrooms"].fillna(dc["bathrooms"].median())
+dc["bedrooms"]  = dc["bedrooms"].fillna(dc["bedrooms"].median())
+
+# 3. IQR Outlier Detection (k=1.5 as in Notebook cell 49)
+def iqr_bounds(series, k=1.5):
     Q1, Q3 = series.quantile(0.25), series.quantile(0.75)
     IQR = Q3 - Q1
     return Q1 - k * IQR, Q3 + k * IQR
 
-price_low, price_high = iqr_bounds(dc["price"], 3.0)
-sqft_low, sqft_high   = iqr_bounds(dc["square_feet"], 3.0)
+price_low, price_high = iqr_bounds(dc["price"], 1.5)
+sqft_low, sqft_high   = iqr_bounds(dc["square_feet"], 1.5)
 
 dc = dc[(dc["price"] >= price_low) & (dc["price"] <= price_high) &
         (dc["square_feet"] >= sqft_low) & (dc["square_feet"] <= sqft_high)]
-dc = dc.dropna(subset=["amenities", "cityname", "state", "latitude", "longitude"])
-dc["bathrooms"] = dc["bathrooms"].fillna(dc["bathrooms"].median())
-dc["bedrooms"]  = dc["bedrooms"].fillna(dc["bedrooms"].median())
-dc = dc.drop_duplicates(keep="first")
 
-# ---------- Feature Engineering ----------
+# 4. Remove duplicates
+dc = dc.drop_duplicates(keep="first")
+print(f"Cleaned dataset shape: {dc.shape}")
+
+# ---------- Step 4: Feature Engineering ----------
+# 1. Binary amenity flags
 amenities_lower = dc["amenities"].str.lower()
 key_amenities = ["pool", "gym", "dishwasher", "parking", "garage", "washer",
                  "dryer", "ac", "patio", "gated", "fireplace", "elevator"]
 for item in key_amenities:
     dc[f"has_{item}"] = amenities_lower.apply(lambda x: 1 if item in x else 0)
 
-dc["amenity_count"] = dc["amenities"].apply(lambda x: 0 if x == "none" else len(x.split(",")))
+# 2. Amenity count (len(split(',')) as in Notebook cell 54)
+dc["amenity_count"] = dc["amenities"].apply(lambda x: len(x.split(",")))
+
+# 3. Domain-specific interaction ratios
 dc["sqft_per_bedroom"]  = dc["square_feet"] / (dc["bedrooms"] + 1)
 dc["sqft_per_bathroom"] = dc["square_feet"] / (dc["bathrooms"] + 1)
 dc["bed_bath_ratio"]    = dc["bedrooms"] / (dc["bathrooms"] + 0.5)
 
-# Save rich city metadata for UI
+# Save rich city metadata for UI map & selector
 city_grouped = dc.groupby(["cityname", "state"]).agg({
     "price": "median",
     "latitude": "median",
     "longitude": "median"
 }).reset_index()
 
-# ---------- Split First to Prevent Target Leakage ----------
+# ---------- Train/Test Split (Zero Data Leakage) ----------
 train_df, test_df = train_test_split(dc, test_size=0.2, random_state=42)
 
+# Fit target encoding strictly on train partition
 overall_median = train_df["price"].median()
 city_medians = train_df.groupby("cityname")["price"].median().to_dict()
 
 train_df["city_median_price"] = train_df["cityname"].map(city_medians).fillna(overall_median)
 test_df["city_median_price"]  = test_df["cityname"].map(city_medians).fillna(overall_median)
 
-# ---------- Encode ----------
+# ---------- One-Hot Encoding ----------
 drop_cols = ["cityname", "amenities"]
 train_dm = train_df.drop(columns=drop_cols)
 test_dm  = test_df.drop(columns=drop_cols)
@@ -112,15 +129,18 @@ X_test_scaled[num_cols]  = scaler.transform(X_test[num_cols])
 models = {
     "Linear Regression (Baseline)": {
         "model": LinearRegression(),
-        "key": "linear"
+        "key": "linear",
+        "diag_key": "linear"
     },
     "Decision Tree (Tuned)": {
         "model": DecisionTreeRegressor(max_depth=16, min_samples_leaf=10, random_state=42),
-        "key": "decision_tree"
+        "key": "decision_tree",
+        "diag_key": "dt"
     },
     "Random Forest (100 Trees)": {
-        "model": RandomForestRegressor(n_estimators=100, max_depth=25, random_state=42, n_jobs=-1),
-        "key": "random_forest"
+        "model": RandomForestRegressor(n_estimators=100, max_depth=25, min_samples_leaf=1, random_state=42, n_jobs=-1),
+        "key": "random_forest",
+        "diag_key": "rf"
     },
     "Hist Gradient Boosting (Tuned)": {
         "model": HistGradientBoostingRegressor(
@@ -133,19 +153,25 @@ models = {
             validation_fraction=0.1,
             random_state=42
         ),
-        "key": "hist_gradient_boosting"
+        "key": "hist_gradient_boosting",
+        "diag_key": "hgb"
     }
 }
 
 metrics_summary = {}
 
-print("Training all 4 machine learning models...")
+# Sample for diagnostic parquet
+diag_sample = test_df.sample(min(5000, len(test_df)), random_state=42).copy()
+diag_sample_scaled = X_test_scaled.loc[diag_sample.index]
+
+print("\nTraining all 4 machine learning models...")
 for name, item in models.items():
     m = item["model"]
     k = item["key"]
+    dk = item["diag_key"]
     print(f"--> Training {name}...")
     
-    # Fit model
+    # Fit model on log-transformed target
     m.fit(X_train_scaled, y_train_log)
     pred_log = m.predict(X_test_scaled)
     pred = np.expm1(pred_log)
@@ -170,10 +196,25 @@ for name, item in models.items():
         "within_20": within_20
     }
     
+    # Diagnostic predictions for UI Tab 3
+    sample_pred_log = m.predict(diag_sample_scaled)
+    sample_pred = np.expm1(sample_pred_log)
+    diag_sample[f"pred_{dk}"] = sample_pred
+    diag_sample[f"res_{dk}"] = diag_sample["price"] - sample_pred
+    diag_sample[f"abs_err_{dk}"] = np.abs(diag_sample[f"res_{dk}"])
+    diag_sample[f"pct_err_{dk}"] = (diag_sample[f"abs_err_{dk}"] / diag_sample["price"]) * 100
+    
     # Export compressed joblib artifact
     out_fpath = os.path.join(HERE, f"model_{k}.joblib")
     joblib.dump(m, out_fpath, compress=3)
     
+    # Clean old split chunks if any exist
+    for old_part in glob.glob(f"{out_fpath}.part*"):
+        try:
+            os.remove(old_part)
+        except OSError:
+            pass
+            
     # Split large models (> 48MB) into safe < 50MB chunks for GitHub
     if os.path.getsize(out_fpath) > 48 * 1024 * 1024:
         chunk_size = 45 * 1024 * 1024
@@ -188,7 +229,8 @@ for name, item in models.items():
     print(f"    {name} -> MAE: ${mae_usd:.2f} | RMSE: ${rmse_usd:.2f} | MAPE: {mape:.2f}% | R²: {r2:.4f}")
 
 # Save default deployed model (HistGradientBoosting)
-joblib.dump(models["Hist Gradient Boosting (Tuned)"]["model"], os.path.join(HERE, "rent_model.joblib"), compress=3)
+hgb_model = models["Hist Gradient Boosting (Tuned)"]["model"]
+joblib.dump(hgb_model, os.path.join(HERE, "rent_model.joblib"), compress=3)
 
 # Save preprocessors and metadata locally
 joblib.dump(scaler, os.path.join(HERE, "scaler.joblib"))
@@ -203,5 +245,17 @@ joblib.dump({
     "overall_median": overall_median,
     "city_table": city_grouped
 }, os.path.join(HERE, "city_geo.joblib"))
+
+# Sync root level artifacts
+joblib.dump(hgb_model, os.path.join(ROOT, "rent_model.joblib"), compress=3)
+joblib.dump(list(X_train.columns), os.path.join(ROOT, "model_columns.joblib"))
+joblib.dump(geo, os.path.join(ROOT, "state_geo.joblib"))
+
+# Save updated diagnostic parquet for Tab 3
+diag_sample["price_per_sqft"] = diag_sample["price"] / diag_sample["square_feet"]
+diag_sample["log_price"] = np.log1p(diag_sample["price"])
+diag_parquet_path = os.path.join(HERE, "data", "model_diag_sample.parquet")
+diag_sample.to_parquet(diag_parquet_path)
+print(f"Saved diagnostic sample ({len(diag_sample)} rows) to {diag_parquet_path}")
 
 print("\nSuccessfully trained and saved all production model artifacts!")
