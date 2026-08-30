@@ -385,30 +385,20 @@ st.markdown("""
 
 # =====================================================================
 #                   DATA & ARTIFACT LOADERS
-# =====================================================================
+import gc
+
 @st.cache_resource
 def load_models_and_artifacts():
-    # Auto-reconstruct split binaries if needed
-    for model_fname in ["model_random_forest.joblib", "model_hist_gradient_boosting.joblib"]:
-        target_path = os.path.join(HERE, model_fname)
-        if not os.path.exists(target_path):
-            parts = sorted(glob.glob(f"{target_path}.part*"))
-            if parts:
-                with open(target_path, "wb") as out_f:
-                    for p in parts:
-                        with open(p, "rb") as in_f:
-                            out_f.write(in_f.read())
-
     scaler = joblib.load(os.path.join(HERE, "scaler.joblib"))
     num_cols = joblib.load(os.path.join(HERE, "num_cols.joblib"))
     columns = joblib.load(os.path.join(HERE, "model_columns.joblib"))
     state_geo = joblib.load(os.path.join(HERE, "state_geo.joblib"))
     city_data = joblib.load(os.path.join(HERE, "city_geo.joblib"))
 
+    # Load core fast models into memory
     models = {}
     candidate_joblibs = [
         ("Hist Gradient Boosting (Tuned)", "model_hist_gradient_boosting.joblib"),
-        ("Random Forest (100 Trees)", "model_random_forest.joblib"),
         ("Decision Tree (Tuned)", "model_decision_tree.joblib"),
         ("Linear Regression (Baseline)", "model_linear.joblib")
     ]
@@ -433,10 +423,59 @@ def load_models_and_artifacts():
 
     return models, scaler, num_cols, columns, state_geo, city_data, saved_metrics
 
+class CompactForest:
+    def __init__(self, trees):
+        self.trees = trees
+
+    def predict(self, X):
+        X_arr = np.asarray(X)
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(1, -1)
+        n_samples = X_arr.shape[0]
+        all_tree_preds = np.zeros((len(self.trees), n_samples), dtype=np.float32)
+        for t_idx, tree in enumerate(self.trees):
+            left = tree['left']
+            right = tree['right']
+            feature = tree['feature']
+            threshold = tree['threshold']
+            val = tree['value']
+            for i in range(n_samples):
+                node = 0
+                sample = X_arr[i]
+                while left[node] != -1:
+                    if sample[feature[node]] <= threshold[node]:
+                        node = left[node]
+                    else:
+                        node = right[node]
+                all_tree_preds[t_idx, i] = val[node]
+        return np.mean(all_tree_preds, axis=0)
+
+@st.cache_resource
+def get_random_forest_model():
+    """Lazy-load the 100-tree Random Forest only when explicitly selected by the user."""
+    rf_path = os.path.join(HERE, "model_random_forest.joblib")
+    if not os.path.exists(rf_path):
+        parts = sorted(glob.glob(f"{rf_path}.part*"))
+        if parts:
+            with open(rf_path, "wb") as out_f:
+                for p in parts:
+                    with open(p, "rb") as in_f:
+                        out_f.write(in_f.read())
+    if os.path.exists(rf_path):
+        try:
+            loaded_obj = joblib.load(rf_path)
+            if isinstance(loaded_obj, list):
+                return CompactForest(loaded_obj)
+            return loaded_obj
+        except Exception:
+            pass
+    return None
+
 @st.cache_data
 def load_eda_dataset():
     if os.path.exists(EDA_DATA_PATH):
-        return pd.read_parquet(EDA_DATA_PATH)
+        df = pd.read_parquet(EDA_DATA_PATH)
+        return df
     return pd.DataFrame()
 
 @st.cache_data
@@ -453,7 +492,7 @@ states = sorted(state_geo.index)
 city_table = city_data.get("city_table", pd.DataFrame())
 
 # Helper: Compute Stacking Prediction via RidgeCV Meta-Learner Weights
-def predict_stacking_ensemble(feat_vector):
+def predict_stacking_ensemble(feat_vector, force_rf=False):
     """
     Combines base learners using RidgeCV meta-estimator weights from BMDS2003 notebook:
     Intercept: 0.0039, LR: -0.0948, DT: -0.0964, RF: 0.5025, HGB: 0.6950
@@ -461,8 +500,14 @@ def predict_stacking_ensemble(feat_vector):
     try:
         p_lr = models["Linear Regression (Baseline)"].predict(feat_vector)[0]
         p_dt = models["Decision Tree (Tuned)"].predict(feat_vector)[0]
-        p_rf = models["Random Forest (100 Trees)"].predict(feat_vector)[0]
         p_hgb = models["Hist Gradient Boosting (Tuned)"].predict(feat_vector)[0]
+        
+        if force_rf:
+            rf_obj = get_random_forest_model()
+            p_rf = rf_obj.predict(feat_vector)[0] if rf_obj is not None else p_hgb
+        else:
+            p_rf = p_hgb
+
         stack_log = 0.0039 - (0.0948 * p_lr) - (0.0964 * p_dt) + (0.5025 * p_rf) + (0.6950 * p_hgb)
         return max(100.0, float(np.expm1(stack_log)))
     except Exception:
@@ -599,8 +644,15 @@ with tab_predict:
 
     feat_row = build_feature_vector()
 
+    # Load active models for prediction (lazy load RF on demand)
+    active_models = dict(models)
+    if selected_option.startswith("Random Forest") or selected_option.startswith("Stacking"):
+        rf_m = get_random_forest_model()
+        if rf_m is not None:
+            active_models["Random Forest (100 Trees)"] = rf_m
+
     all_preds = {}
-    for m_display, m_obj in models.items():
+    for m_display, m_obj in active_models.items():
         try:
             pred_log = m_obj.predict(feat_row)[0]
             all_preds[m_display] = max(100.0, float(np.expm1(pred_log)))
@@ -608,7 +660,8 @@ with tab_predict:
             pass
 
     # Add Stacking Ensemble prediction
-    all_preds["Stacking Ensemble"] = predict_stacking_ensemble(feat_row)
+    is_stacking_opt = selected_option.startswith("Stacking")
+    all_preds["Stacking Ensemble"] = predict_stacking_ensemble(feat_row, force_rf=is_stacking_opt)
 
     if not all_preds:
         all_preds["Market Average Baseline"] = float(city_med)
@@ -618,6 +671,11 @@ with tab_predict:
         primary_model_key = "Stacking Ensemble"
     elif selected_option in all_preds:
         primary_model_key = selected_option
+    elif selected_option.startswith("Random Forest"):
+        primary_model_key = "Random Forest (100 Trees)"
+        rf_m = get_random_forest_model()
+        if rf_m is not None:
+            all_preds["Random Forest (100 Trees)"] = max(100.0, float(np.expm1(rf_m.predict(feat_row)[0])))
 
     primary_pred = all_preds.get(primary_model_key, float(city_med))
     lower_bound = primary_pred * 0.90
@@ -703,7 +761,10 @@ with tab_predict:
 
         sqft_range = np.linspace(300, 3500, 35)
         curve_preds = []
-        active_model = models.get(primary_model_key, list(models.values())[0] if models else None)
+        if primary_model_key.startswith("Random Forest"):
+            active_model = get_random_forest_model()
+        else:
+            active_model = models.get(primary_model_key, list(models.values())[0] if models else None)
 
         for s in sqft_range:
             row_s = build_feature_vector(sqft=s)
@@ -1136,11 +1197,10 @@ with tab_eda:
                         <div class='eda-card-title'>Graph 9: Top 10 Most Common Apartment Layouts</div>
                     </div>
                 """, unsafe_allow_html=True)
-                df_eda_copy = df_eda.copy()
-                df_eda_copy["beds_str"] = df_eda_copy["bedrooms"].dropna().astype(str).str.split(".").str[0]
-                df_eda_copy["baths_str"] = df_eda_copy["bathrooms"].dropna().astype(str).str.replace(r"\.0$", "", regex=True)
-                df_eda_copy["layout"] = df_eda_copy["beds_str"] + " Bed / " + df_eda_copy["baths_str"] + " Bath"
-                top_layouts = df_eda_copy["layout"].value_counts().nlargest(10).reset_index()
+                beds_series = df_eda["bedrooms"].dropna().astype(int).astype(str)
+                baths_series = df_eda["bathrooms"].dropna().astype(str).str.replace(r"\.0$", "", regex=True)
+                layout_series = beds_series + " Bed / " + baths_series + " Bath"
+                top_layouts = layout_series.value_counts().nlargest(10).reset_index()
                 top_layouts.columns = ["Layout", "Count"]
 
                 fig9 = px.bar(
@@ -1268,13 +1328,14 @@ with tab_eda:
                         <div class='eda-card-title'>Graph 13: Listing Publish Velocity by Day of Week & Source</div>
                     </div>
                 """, unsafe_allow_html=True)
-                df_time = df_eda.copy()
-                df_time["datetime"] = pd.to_datetime(df_time["time"], unit="s", errors="coerce")
-                df_time["day_of_week"] = df_time["datetime"].dt.day_name()
                 weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-                top_sources = df_time["source"].value_counts().nlargest(3).index
-                df_time_plot = df_time[df_time["source"].isin(top_sources) & df_time["day_of_week"].notna()]
-                time_counts = df_time_plot.groupby(["day_of_week", "source"]).size().reset_index(name="count")
+                top_sources = df_eda["source"].value_counts().nlargest(3).index
+                mask_time = df_eda["source"].isin(top_sources) & df_eda["time"].notna()
+                sub_time = df_eda.loc[mask_time, ["source", "time"]]
+                dt_vals = pd.to_datetime(sub_time["time"], unit="s", errors="coerce")
+                day_names = dt_vals.dt.day_name()
+                time_counts = pd.crosstab(day_names, sub_time["source"]).reset_index()
+                time_counts = time_counts.melt(id_vars=["time"], var_name="source", value_name="count").rename(columns={"time": "day_of_week"})
 
                 fig13 = px.bar(
                     time_counts,
@@ -1312,7 +1373,7 @@ with tab_eda:
                         <div class='eda-card-title'>Graph 14: Continental US Geographical Pricing Clusters</div>
                     </div>
                 """, unsafe_allow_html=True)
-                geo_sample_size = st.slider("Map Sample Density:", 2000, 8000, 5000, step=1000, key="geo_sample_slider")
+                geo_sample_size = st.slider("Map Sample Density:", 1500, 6000, 3000, step=500, key="geo_sample_slider")
                 spatial_df = df_eda[
                     (df_eda["latitude"] > 24) & (df_eda["latitude"] < 50) &
                     (df_eda["longitude"] > -125) & (df_eda["longitude"] < -65) &
@@ -1669,10 +1730,10 @@ with tab_models:
             if not df_diag.empty and f"res_{m_key}" in df_diag.columns:
                 if m_key == "rf":
                     # RF: Residual by Bedroom Count (Matching notebook cell 73)
-                    df_rf_bed = df_diag.copy()
-                    df_rf_bed["bed_cat"] = df_rf_bed["bedrooms"].apply(
+                    bed_cats_mapped = df_diag["bedrooms"].apply(
                         lambda x: "0 (Studio)" if x == 0 else ("1 Bed" if x == 1 else ("2 Bed" if x == 2 else ("3 Bed" if x == 3 else ("4 Bed" if x == 4 else "5+ Bed"))))
                     )
+                    df_rf_bed = pd.DataFrame({"bed_cat": bed_cats_mapped, "res_rf": df_diag["res_rf"]})
                     fig_res_bed = px.box(
                         df_rf_bed,
                         x="bed_cat",
@@ -1863,9 +1924,8 @@ with tab_models:
 
             else:
                 # Linear: MAE Across Price Tiers
-                tier_df = df_diag.copy()
-                tier_df["Price Tier"] = pd.cut(tier_df["price"], bins=[0, 1000, 2000, 3000, 5000], labels=["<$1,000", "$1k–$2k", "$2k–$3k", "$3k+"])
-                tier_mae = tier_df.groupby("Price Tier", observed=False)[f"abs_err_{m_key}"].mean().reset_index()
+                price_bins = pd.cut(df_diag["price"], bins=[0, 1000, 2000, 3000, 5000], labels=["<$1,000", "$1k–$2k", "$2k–$3k", "$3k+"])
+                tier_mae = pd.DataFrame({"Price Tier": price_bins, f"abs_err_{m_key}": df_diag[f"abs_err_{m_key}"]}).groupby("Price Tier", observed=False).mean().reset_index()
                 fig_tier = px.bar(tier_mae, x="Price Tier", y=f"abs_err_{m_key}", color="Price Tier", color_discrete_sequence=["#3B82F6", "#10B981", "#F59E0B", "#EF4444"], text=f"abs_err_{m_key}")
                 fig_tier.update_traces(texttemplate="$%{y:.1f}", textposition="auto", textfont=dict(size=12, color="#FFFFFF"))
                 fig_tier.update_layout(xaxis_title="Rental Price Tier", yaxis_title="Mean Absolute Error ($ USD)", showlegend=False)

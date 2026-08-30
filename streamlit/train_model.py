@@ -1,25 +1,3 @@
-"""
-train_model.py
----------------
-Trains all 4 machine learning models (Linear Baseline, Decision Tree, Random Forest, Hist Gradient Boosting)
-with advanced feature engineering, target log normalization (log1p), and feature standardization (StandardScaler).
-
-Ensures 100% pipeline consistency with BMDS2003_Group4_notebook.ipynb (k=1.5 IQR, identical cleaning sequence).
-
-Exports production .joblib binaries and metadata:
-    model_linear.joblib                 - Model 1: Linear Regression (Baseline)
-    model_decision_tree.joblib          - Model 2: Decision Tree (Tuned)
-    model_random_forest.joblib (.parts) - Model 3: Random Forest (100 Trees, Full Depth, Auto-Chunked)
-    model_hist_gradient_boosting.joblib - Model 4: Hist Gradient Boosting (Tuned & Regularized)
-    rent_model.joblib                   - Default deployed model
-    model_metrics.joblib                - Comparative benchmark metrics for UI
-    scaler.joblib                       - Trained StandardScaler
-    num_cols.joblib                     - Numerical column names
-    model_columns.joblib                - One-hot aligned feature names
-    state_geo.joblib                    - Per-state median coordinates
-    city_geo.joblib                     - Per-city metadata (state, coords, median price)
-    data/model_diag_sample.parquet      - Evaluation sample with actuals, predictions, and residuals for UI
-"""
 import os
 import glob
 import pandas as pd
@@ -206,7 +184,20 @@ for name, item in models.items():
     
     # Export compressed joblib artifact
     out_fpath = os.path.join(HERE, f"model_{k}.joblib")
-    joblib.dump(m, out_fpath, compress=3)
+    if k == "random_forest":
+        compact_forest = []
+        for e in m.estimators_:
+            t = e.tree_
+            compact_forest.append({
+                'left': t.children_left.astype(np.int32),
+                'right': t.children_right.astype(np.int32),
+                'feature': t.feature.astype(np.int16),
+                'threshold': t.threshold.astype(np.float32),
+                'value': t.value[:, 0, 0].astype(np.float32)
+            })
+        joblib.dump(compact_forest, out_fpath, compress=3)
+    else:
+        joblib.dump(m, out_fpath, compress=3)
     
     # Clean old split chunks if any exist
     for old_part in glob.glob(f"{out_fpath}.part*"):
@@ -226,7 +217,7 @@ for name, item in models.items():
                 part += 1
         print(f"    [GitHub Safe Mode] Split {os.path.basename(out_fpath)} into {part} chunks (< 50MB each)")
         
-    print(f"    {name} -> MAE: ${mae_usd:.2f} | RMSE: ${rmse_usd:.2f} | MAPE: {mape:.2f}% | R²: {r2:.4f}")
+    print(f"    {name} -> MAE: ${mae_usd:.2f} | RMSE: ${rmse_usd:.2f} | MAPE: {mape:.2f}% | R²: {r2:.4f} | Size: {os.path.getsize(out_fpath)/1024**2:.2f} MB")
 
 # Save default deployed model (HistGradientBoosting)
 hgb_model = models["Hist Gradient Boosting (Tuned)"]["model"]
