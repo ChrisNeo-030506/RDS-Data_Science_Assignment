@@ -17,6 +17,46 @@ CSV  = os.path.join(ROOT, "apartments_for_rent_classified_100K.csv")
 print("Loading dataset...")
 df = pd.read_csv(CSV, sep=";", encoding="cp1252", low_memory=False)
 
+# ---------- Step 2: Export Comprehensive EDA Dataset ----------
+print("Preparing comprehensive EDA dataset (99,488 monthly listings)...")
+eda_df = df[df["price_type"] == "Monthly"].copy()
+for c in ["price", "square_feet", "bathrooms", "bedrooms", "latitude", "longitude"]:
+    eda_df[c] = pd.to_numeric(eda_df[c], errors="coerce")
+
+eda_export = eda_df.copy()
+eda_export["price"] = eda_export["price"].astype("float32")
+eda_export["square_feet"] = eda_export["square_feet"].astype("float32")
+eda_export["bathrooms"] = eda_export["bathrooms"].astype("float32")
+eda_export["bedrooms"] = eda_export["bedrooms"].astype("float32")
+eda_export["latitude"] = eda_export["latitude"].astype("float32")
+eda_export["longitude"] = eda_export["longitude"].astype("float32")
+eda_export["fee"] = eda_export["fee"].astype("category")
+eda_export["has_photo"] = eda_export["has_photo"].astype("category")
+eda_export["cityname"] = eda_export["cityname"].astype("category")
+eda_export["state"] = eda_export["state"].astype("category")
+eda_export["source"] = eda_export["source"].astype("category")
+
+# Binary amenity flags for interactive filtering
+amenities_raw = eda_export["amenities"].fillna("").str.lower()
+key_amenities_list = ["pool", "gym", "dishwasher", "parking", "garage", "washer",
+                      "dryer", "ac", "patio", "gated", "fireplace", "elevator"]
+for item in key_amenities_list:
+    eda_export[f"has_{item}"] = amenities_raw.apply(lambda x: 1 if item in x else 0).astype("int8")
+
+eda_export["amenity_count"] = eda_export["amenities"].fillna("").apply(lambda x: len(x.split(",")) if x else 0).astype("int8")
+
+eda_parquet_cols = [
+    "price", "square_feet", "bedrooms", "bathrooms", "fee", "has_photo",
+    "cityname", "state", "latitude", "longitude", "source", "time",
+    "has_washer", "has_dryer", "has_parking", "has_garage", "has_pool",
+    "has_gym", "has_dishwasher", "has_ac", "has_patio", "has_gated",
+    "has_fireplace", "has_elevator", "amenity_count"
+]
+eda_parquet_path = os.path.join(HERE, "data", "eda_clean_data.parquet")
+os.makedirs(os.path.join(HERE, "data"), exist_ok=True)
+eda_export[eda_parquet_cols].to_parquet(eda_parquet_path, compression="snappy")
+print(f"Saved complete EDA dataset ({len(eda_export)} rows, {os.path.getsize(eda_parquet_path)/1024**2:.2f} MB) to {eda_parquet_path}")
+
 # ---------- Step 3: Data Cleaning (Exact Notebook Alignment) ----------
 # 1. Filter monthly rentals & drop unnecessary metadata
 dc = df[df["price_type"] == "Monthly"].copy()

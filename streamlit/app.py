@@ -470,21 +470,23 @@ def get_random_forest_model():
     return None
 
 @st.cache_data
-def load_eda_dataset():
+def load_eda_dataset(mtime=None):
     if os.path.exists(EDA_DATA_PATH):
         df = pd.read_parquet(EDA_DATA_PATH)
         return df
     return pd.DataFrame()
 
 @st.cache_data
-def load_diagnostic_dataset():
+def load_diagnostic_dataset(mtime=None):
     if os.path.exists(DIAG_DATA_PATH):
         return pd.read_parquet(DIAG_DATA_PATH)
     return pd.DataFrame()
 
 models, scaler, num_cols, columns, state_geo, city_data, saved_metrics = load_models_and_artifacts()
-df_eda = load_eda_dataset()
-df_diag = load_diagnostic_dataset()
+eda_mtime = os.path.getmtime(EDA_DATA_PATH) if os.path.exists(EDA_DATA_PATH) else 0
+diag_mtime = os.path.getmtime(DIAG_DATA_PATH) if os.path.exists(DIAG_DATA_PATH) else 0
+df_eda = load_eda_dataset(eda_mtime)
+df_diag = load_diagnostic_dataset(diag_mtime)
 
 states = sorted(state_geo.index)
 city_table = city_data.get("city_table", pd.DataFrame())
@@ -825,21 +827,22 @@ with tab_eda:
     if df_eda.empty:
         st.error("EDA dataset not loaded. Please ensure `eda_clean_data.parquet` exists.")
     else:
-        # Precompute common metrics & quantiles
-        p95 = df_eda["price"].quantile(0.95)
-        p99 = df_eda["price"].quantile(0.99)
-        sq99 = df_eda["square_feet"].quantile(0.99)
-        med_price = df_eda["price"].median()
-        p25 = df_eda["price"].quantile(0.25)
-        p75 = df_eda["price"].quantile(0.75)
-        avg_sqft = df_eda["square_feet"].mean()
-        avg_ppsqft = (df_eda["price"] / df_eda["square_feet"]).mean()
+        # Precompute common metrics & quantiles on full monthly EDA dataset (99,488 listings)
+        p90 = float(df_eda["price"].quantile(0.90))
+        p95 = float(df_eda["price"].quantile(0.95))
+        p99 = float(df_eda["price"].quantile(0.99))
+        sq99 = float(df_eda["square_feet"].quantile(0.99))
+        med_price = float(df_eda["price"].median())
+        p25 = float(df_eda["price"].quantile(0.25))
+        p75 = float(df_eda["price"].quantile(0.75))
+        avg_sqft = float(df_eda["square_feet"].mean())
+        avg_ppsqft = float((df_eda["price"] / df_eda["square_feet"]).mean())
 
         # --- Top KPI Ribbon Strip ---
         st.markdown("<div style='margin-bottom: 14px;'>", unsafe_allow_html=True)
         ek1, ek2, ek3, ek4, ek5 = st.columns(5)
         with ek1:
-            st.markdown(f"<div class='metric-card'><div class='metric-label'>Clean Listings</div><div class='metric-val'>{len(df_eda):,}</div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><div class='metric-label'>Monthly Listings</div><div class='metric-val'>{len(df_eda):,}</div></div>", unsafe_allow_html=True)
         with ek2:
             st.markdown(f"<div class='metric-card'><div class='metric-label'>National Median</div><div class='metric-val'>${med_price:,.0f} <span style='font-size:0.85rem; color:#94A3B8;'>/ mo</span></div></div>", unsafe_allow_html=True)
         with ek3:
@@ -884,7 +887,7 @@ with tab_eda:
                     name="ln(1 + Price)",
                     hovertemplate="Log Rent: <b>%{x:.3f}</b><br>Listing Count: <b>%{y:,}</b><extra></extra>"
                 ))
-                mean_log = log_prices.mean()
+                mean_log = float(log_prices.mean())
                 fig1.add_vline(
                     x=mean_log,
                     line_dash="dash",
@@ -895,9 +898,9 @@ with tab_eda:
                 fig1.update_layout(xaxis_title="Log Rent: ln(1 + Monthly Price)", yaxis_title="Number of Listings", bargap=0.04)
                 apply_plotly_styling(fig1, height=330)
                 st.plotly_chart(fig1, use_container_width=True)
-                st.markdown("""
+                st.markdown(f"""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Raw rental prices exhibit heavy positive skewness. Applying the natural logarithmic transformation $\\ln(1 + y)$ successfully converts the distribution into an approximate Gaussian bell curve (mean = 7.20), stabilizing residual variance (homoscedasticity) and boosting regression predictive power by over 14% $R^2$.
+                        💡 <b>Data Science & Business Insight:</b> Raw monthly rental prices exhibit heavy positive skewness (mean = $1,527, max = $52,500). Applying the natural logarithmic transformation ln(1 + y) normalizes the target into an approximate Gaussian bell curve (mean = <b>{mean_log:.2f}</b> ≈ $1,375), stabilizing residual variance (homoscedasticity) and improving regression model fit.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -910,8 +913,13 @@ with tab_eda:
                         <div class='eda-card-title'>Graph 2: Monthly Rent Distribution (Capped at Percentile)</div>
                     </div>
                 """, unsafe_allow_html=True)
-                q_choice = st.selectbox("Select Display Percentile Cutoff:", ["95th Percentile ($2,700)", "90th Percentile ($2,250)", "99th Percentile ($3,950)"], index=0, key="uni_q_choice")
-                q_val = p95 if "95th" in q_choice else (df_eda["price"].quantile(0.90) if "90th" in q_choice else p99)
+                q_choice = st.selectbox(
+                    "Select Display Percentile Cutoff:",
+                    [f"95th Percentile (${p95:,.0f})", f"90th Percentile (${p90:,.0f})", f"99th Percentile (${p99:,.0f})"],
+                    index=0,
+                    key="uni_q_choice"
+                )
+                q_val = p95 if "95th" in q_choice else (p90 if "90th" in q_choice else p99)
                 df_q = df_eda[df_eda["price"] <= q_val]
 
                 fig2 = go.Figure()
@@ -928,22 +936,22 @@ with tab_eda:
                 st.plotly_chart(fig2, use_container_width=True)
                 st.markdown(f"""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> 95% of nationwide listings fall under <b>${p95:,.0f}/month</b>, with the single highest concentration between $900 and $1,600. The long upper tail reflects luxury urban units that require robust non-linear tree handling.
+                        💡 <b>Data Science & Business Insight:</b> 95% of nationwide monthly listings fall under <b>${p95:,.0f}/month</b>, with the core market concentration between $900 and $1,600 (national median = <b>${med_price:,.0f}</b>). The long upper tail reflects premium luxury metropolitan units.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            # Row 2: Graph 3 & Graph 4 (Updated 2x2 Grid)
+            # Row 2: Graph 3 & Graph 4
             u_col3, u_col4 = st.columns(2)
             with u_col3:
                 st.markdown("""
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>IQR Thresholding</span>
-                        <div class='eda-card-title'>Graph 3: Price and Square Feet Outlier Profiling</div>
+                        <div class='eda-card-title'>Graph 3: Price and Square Feet Outlier Profiling (Before Outlier Removal)</div>
                     </div>
                 """, unsafe_allow_html=True)
-                fig3 = make_subplots(rows=1, cols=2, subplot_titles=["Rent Price ($) Distribution", "Square Feet Distribution"])
+                fig3 = make_subplots(rows=1, cols=2, subplot_titles=["Rent Price ($) — Outliers Present", "Square Feet — Outliers Present"])
                 fig3.add_trace(go.Box(
                     y=df_eda["price"].dropna(),
                     name="Price ($)",
@@ -963,7 +971,7 @@ with tab_eda:
                 st.plotly_chart(fig3, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Extreme anomalies exist in raw listings (e.g. data entry typos with $100k+ rents or 50,000 sq ft). Applying IQR boundaries removes severe noise while retaining legitimate luxury listings without distorting standard errors.
+                        💡 <b>Data Science & Business Insight:</b> Extreme anomalies exist in raw listings (e.g. data entry errors up to $52,500/mo and 40,000 sq ft). Applying IQR thresholding ($k = 1.5$) in Step 3 eliminates severe leverage points ($price > \\$2,935$, $sqft > 1,780$) while preserving representative market data.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -979,14 +987,20 @@ with tab_eda:
                 
                 # Panel A & B
                 fee_counts = df_eda["fee"].value_counts().reset_index()
+                fee_counts.columns = ["fee", "count"]
                 photo_counts = df_eda["has_photo"].value_counts().reset_index()
+                photo_counts.columns = ["has_photo", "count"]
                 
                 # Panel C: Bedrooms categorized
-                bed_cats = df_eda["bedrooms"].apply(lambda x: "0 (Studio)" if x == 0 else ("4+" if x >= 4 else str(int(x)) if pd.notna(x) else "Missing")).value_counts().reindex(["0 (Studio)", "1", "2", "3", "4+"]).fillna(0).reset_index()
+                bed_cats = df_eda["bedrooms"].apply(
+                    lambda x: "0 (Studio)" if x == 0 else ("4+" if x >= 4 else str(int(x)) if pd.notna(x) else "Missing")
+                ).value_counts().reindex(["0 (Studio)", "1", "2", "3", "4+"]).fillna(0).reset_index()
                 bed_cats.columns = ["Bedrooms", "Count"]
 
                 # Panel D: Bathrooms categorized
-                bath_cats = df_eda["bathrooms"].apply(lambda x: "1.0" if x == 1.0 else ("1.5" if x == 1.5 else ("2.0" if x == 2.0 else ("2.5" if x == 2.5 else ("3.0+" if x >= 3.0 else "Other"))))).value_counts().reindex(["1.0", "1.5", "2.0", "2.5", "3.0+"]).fillna(0).reset_index()
+                bath_cats = df_eda["bathrooms"].apply(
+                    lambda x: "1.0" if x == 1.0 else ("1.5" if x == 1.5 else ("2.0" if x == 2.0 else ("2.5" if x == 2.5 else ("3.0+" if x >= 3.0 else "Other"))))
+                ).value_counts().reindex(["1.0", "1.5", "2.0", "2.5", "3.0+"]).fillna(0).reset_index()
                 bath_cats.columns = ["Bathrooms", "Count"]
 
                 fig4 = make_subplots(
@@ -1021,7 +1035,7 @@ with tab_eda:
                 st.plotly_chart(fig4, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> <b>>98%</b> of listings require zero broker fee, and <b>>90%</b> include photo assets. The inventory is heavily concentrated around <b>1–2 bedrooms</b> and <b>1–2 bathrooms</b>, matching national household tenancy demands.
+                        💡 <b>Data Science & Business Insight:</b> <b>>99.7%</b> of listings require zero broker fee (99,287 vs 201), and <b>>90.7%</b> include visual media. Supply is heavily dominated by <b>1–2 bedrooms</b> (86.8%) and <b>1–2 bathrooms</b> (93.4%), reflecting standard US household occupancy requirements.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1031,7 +1045,7 @@ with tab_eda:
             <div class='eda-card'>
                 <div class='eda-card-header'>
                     <span class='eda-pill'>Square Footage Density</span>
-                    <div class='eda-card-title'>Graph 5: Living Area Distribution Across US Apartments</div>
+                    <div class='eda-card-title'>Graph 5: Distribution of Apartment Sizes (Square Feet Capped at 4,000)</div>
                 </div>
             """, unsafe_allow_html=True)
             fig5 = go.Figure()
@@ -1049,7 +1063,7 @@ with tab_eda:
             st.plotly_chart(fig5, use_container_width=True)
             st.markdown(f"""
                 <div class='insight-box'>
-                    💡 <b>Data Science & Business Insight:</b> The distribution of apartment sizes centers around an average of <b>{avg_sqft:,.0f} sq ft</b> with two distinct multimodal peaks at <b>750 sq ft</b> (standard 1-bedroom unit) and <b>1,000 sq ft</b> (standard 2-bedroom unit).
+                    💡 <b>Data Science & Business Insight:</b> Apartment sizes average <b>{avg_sqft:,.0f} sq ft</b> (median 900 sq ft) with two prominent density peaks at <b>750–800 sq ft</b> (standard 1-bedroom unit) and <b>1,000–1,100 sq ft</b> (standard 2-bedroom unit).
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -1068,7 +1082,7 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>Pearson Correlation Matrix</span>
-                        <div class='eda-card-title'>Graph 6: Correlation Heatmap (Continuous Features)</div>
+                        <div class='eda-card-title'>Graph 6: Correlation Heatmap of Numerical Features</div>
                     </div>
                 """, unsafe_allow_html=True)
                 num_cols_eda = ["price", "square_feet", "bathrooms", "bedrooms", "latitude", "longitude"]
@@ -1085,7 +1099,7 @@ with tab_eda:
                 st.plotly_chart(fig6, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> <b>Square Feet (r = 0.58)</b> and <b>Bathrooms (r = 0.50)</b> exhibit the highest positive linear correlation with price. Latitude and longitude show low global linear correlation because geographic rent drivers are highly non-linear and localized into metropolitan clusters.
+                        💡 <b>Data Science & Business Insight:</b> <b>Square Feet (r = 0.41)</b> and <b>Bathrooms (r = 0.33)</b> are the strongest positive continuous predictors of monthly rent. Latitude and longitude show near-zero linear correlation (r = 0.06, -0.11) because geographic rent variations are non-linear and localized into metropolitan micro-clusters.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1095,10 +1109,14 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>Bivariate Elasticity</span>
-                        <div class='eda-card-title'>Graph 7: Rent Price vs. Living Area by Bedroom Count</div>
+                        <div class='eda-card-title'>Graph 7: Rent Price vs. Square Feet Scatter Plot by Bedrooms</div>
                     </div>
                 """, unsafe_allow_html=True)
-                sample_biv = df_eda[(df_eda["price"] < p99) & (df_eda["square_feet"] < sq99) & (df_eda["bedrooms"].isin([1, 2, 3]))].sample(min(3500, len(df_eda)), random_state=42)
+                sample_biv = df_eda[
+                    (df_eda["price"] < p99) &
+                    (df_eda["square_feet"] < sq99) &
+                    (df_eda["bedrooms"].isin([1, 2, 3]))
+                ].sample(min(5000, len(df_eda)), random_state=42)
                 fig7 = px.scatter(
                     sample_biv,
                     x="square_feet",
@@ -1114,7 +1132,7 @@ with tab_eda:
                 st.plotly_chart(fig7, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Clear monotonic upward slope confirms that monthly rent scales proportionally with living area across all bedroom tiers. At equivalent square footage, units with fewer bedrooms often command higher rent per room due to luxury open floorplans.
+                        💡 <b>Data Science & Business Insight:</b> The scatter plot demonstrates a positive non-linear relationship with heteroscedastic spread. At any given square footage, units with fewer bedrooms command higher rent per room due to luxury open-concept floorplans in premium urban centers.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1126,7 +1144,7 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>2D Valuation Matrix</span>
-                        <div class='eda-card-title'>Graph 8: Average Rent Heatmap by Bed & Bath Grid ($)</div>
+                        <div class='eda-card-title'>Graph 8: Average Rent Heatmap by Bedroom & Bathroom Configurations ($)</div>
                     </div>
                 """, unsafe_allow_html=True)
                 df_filtered_layout = df_eda[
@@ -1146,7 +1164,7 @@ with tab_eda:
                 st.plotly_chart(fig8, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Rents scale steadily along both room axes: adding a second bathroom to a 2-bedroom unit increases average rent by approximately <b>+$260/month</b>, reflecting strong tenant demand for private ensuite layouts.
+                        💡 <b>Data Science & Business Insight:</b> Rents scale steadily along both room axes: adding a second bathroom to a 2-bedroom unit increases average rent by approximately <b>+$410/month</b> ($1,307 → $1,717), reflecting strong tenant demand for private ensuite layouts.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1159,7 +1177,7 @@ with tab_eda:
                         <div class='eda-card-title'>Graph 9: Top 10 Most Common Apartment Layouts</div>
                     </div>
                 """, unsafe_allow_html=True)
-                beds_series = df_eda["bedrooms"].dropna().astype(int).astype(str)
+                beds_series = df_eda["bedrooms"].dropna().astype(str).str.split(".").str[0]
                 baths_series = df_eda["bathrooms"].dropna().astype(str).str.replace(r"\.0$", "", regex=True)
                 layout_series = beds_series + " Bed / " + baths_series + " Bath"
                 top_layouts = layout_series.value_counts().nlargest(10).reset_index()
@@ -1190,7 +1208,7 @@ with tab_eda:
                 st.plotly_chart(fig9, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> <b>2 Bed / 2 Bath</b> and <b>1 Bed / 1 Bath</b> dominate the US rental market, comprising over <b>65%</b> of overall inventory. Developers prioritize these units due to maximum liquidity and tenant appeal.
+                        💡 <b>Data Science & Business Insight:</b> <b>1 Bed / 1 Bath</b> (39,527 listings) and <b>2 Bed / 2 Bath</b> (28,630 listings) represent over <b>68%</b> of national inventory, confirming maximum liquidity and investor preference for these two layouts.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1202,7 +1220,7 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>Interquartile Variance</span>
-                        <div class='eda-card-title'>Graph 10: Rent Price Distribution by Bedroom Count</div>
+                        <div class='eda-card-title'>Graph 10: Rent Price Distribution by Number of Bedrooms</div>
                     </div>
                 """, unsafe_allow_html=True)
                 df_beds = df_eda[df_eda["bedrooms"].isin([0, 1, 2, 3, 4])]
@@ -1218,7 +1236,7 @@ with tab_eda:
                 st.plotly_chart(fig10, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Both the median price and interquartile spread (IQR) increase consistently with bedroom count. Variance is highest in 3-bedroom and 4-bedroom homes due to greater diversity in luxury amenities and square footage.
+                        💡 <b>Data Science & Business Insight:</b> Both the median price and interquartile spread (IQR) increase consistently with bedroom count (0-Bed: $1,250, 1-Bed: $1,225, 2-Bed: $1,400, 3-Bed: $1,650, 4-Bed: $1,995), with widening variance in 3+ bedroom family properties.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1228,7 +1246,7 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>Cross-Tabulation Matrix</span>
-                        <div class='eda-card-title'>Graph 11: Photo Availability vs. Broker Fee (%)</div>
+                        <div class='eda-card-title'>Graph 11: Cross-Tabulation (Photo Availability vs. Broker Fee)</div>
                     </div>
                 """, unsafe_allow_html=True)
                 ct = pd.crosstab(df_eda["has_photo"], df_eda["fee"], normalize="index") * 100
@@ -1244,7 +1262,7 @@ with tab_eda:
                 st.plotly_chart(fig11, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Across all photo categories, the vast majority (>98%) of listings do not require broker fees, establishing that broker fees are rare exceptions in nationwide US rental platforms.
+                        💡 <b>Data Science & Business Insight:</b> Across all photo categories, the vast majority (>99.5%) of listings do not require broker fees, establishing that broker fees are rare exceptions across nationwide US rental platforms.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1256,12 +1274,12 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>Geographic State Pricing</span>
-                        <div class='eda-card-title'>Graph 12: Average Monthly Rent by State (Top 15 Most Listed)</div>
+                        <div class='eda-card-title'>Graph 12: Average Monthly Rent by State (Top 15 Most Listed States)</div>
                     </div>
                 """, unsafe_allow_html=True)
                 top_states = df_eda["state"].value_counts().nlargest(15).index
                 df_top_states = df_eda[df_eda["state"].isin(top_states)]
-                state_order = df_top_states.groupby("state")["price"].mean().sort_values(ascending=False).reset_index()
+                state_order = df_top_states.groupby("state", observed=True)["price"].mean().sort_values(ascending=False).reset_index()
 
                 fig12 = px.bar(
                     state_order,
@@ -1277,7 +1295,7 @@ with tab_eda:
                 st.plotly_chart(fig12, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Coastal powerhouse states (<b>California ($2,140)</b>, <b>Massachusetts ($2,280)</b>, <b>New York ($2,090)</b>, <b>Washington ($1,850)</b>) command significant rent premiums over Midwest and Southern states, confirming the need for target-encoded city medians.
+                        💡 <b>Data Science & Business Insight:</b> Coastal powerhouse states (<b>California ($2,463)</b>, <b>Massachusetts ($2,192)</b>, <b>New Jersey ($2,038)</b>, <b>Washington ($1,826)</b>) command significant rent premiums over Midwest and Southern states, confirming the need for target-encoded city medians.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1287,7 +1305,7 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>Temporal Seasonality</span>
-                        <div class='eda-card-title'>Graph 13: Listing Publish Velocity by Day of Week & Source</div>
+                        <div class='eda-card-title'>Graph 13: Apartment Listing Activity by Day of Week & Source</div>
                     </div>
                 """, unsafe_allow_html=True)
                 weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -1313,7 +1331,7 @@ with tab_eda:
                 st.plotly_chart(fig13, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Midweek days (<b>Tuesday through Thursday</b>) exhibit the highest listing publish velocity, whereas weekends experience steep declines as real-estate property managers focus on open house tours.
+                        💡 <b>Data Science & Business Insight:</b> Listing publication volume is heavily dominated by aggregator syndication (`RentDigs.com`), peaking during midweek workdays (<b>Tuesday through Thursday</b>) and declining on weekends.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1332,10 +1350,10 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>Geospatial Density Map</span>
-                        <div class='eda-card-title'>Graph 14: Continental US Geographical Pricing Clusters</div>
+                        <div class='eda-card-title'>Graph 14: Geographical Spatial Analysis of US Rental Prices</div>
                     </div>
                 """, unsafe_allow_html=True)
-                geo_sample_size = st.slider("Map Sample Density:", 1500, 6000, 3000, step=500, key="geo_sample_slider")
+                geo_sample_size = st.slider("Map Sample Density:", 2000, 10000, 8000, step=1000, key="geo_sample_slider")
                 spatial_df = df_eda[
                     (df_eda["latitude"] > 24) & (df_eda["latitude"] < 50) &
                     (df_eda["longitude"] > -125) & (df_eda["longitude"] < -65) &
@@ -1357,7 +1375,7 @@ with tab_eda:
                 st.plotly_chart(fig14, use_container_width=True)
                 st.markdown("""
                     <div class='insight-box'>
-                        💡 <b>Data Science & Business Insight:</b> Nationwide spatial plotting uncovers stark coastal price density clusters in California, the Northeast Corridor (NYC/Boston), and the Pacific Northwest, contrasting with affordable interior Midwest and Sunbelt metropolitan regions.
+                        💡 <b>Data Science & Business Insight:</b> Nationwide spatial plotting uncovers stark coastal price density clusters along the Northeast Corridor (NYC/Boston), California (SF/LA), and the Pacific Northwest, contrasting with affordable interior Midwest and Sunbelt metropolitan regions.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1367,23 +1385,23 @@ with tab_eda:
                 <div class='eda-card'>
                     <div class='eda-card-header'>
                         <span class='eda-pill'>3×3 Multivariate Matrix</span>
-                        <div class='eda-card-title'>Graph 15: Pairwise Continuous Interactions by Bedroom Layout</div>
+                        <div class='eda-card-title'>Graph 15: Pairwise Continuous Feature Interactions by Bedroom Layout</div>
                     </div>
                 """, unsafe_allow_html=True)
                 pair_sample = df_eda[
                     (df_eda["price"] < p99) &
                     (df_eda["square_feet"] < sq99) &
                     (df_eda["bedrooms"].isin([1, 2, 3]))
-                ].sample(min(1400, len(df_eda)), random_state=42).copy()
+                ].sample(min(2000, len(df_eda)), random_state=42).copy()
 
-                pair_sample["Bedroom Type"] = pair_sample["bedrooms"].astype(int).astype(str) + " Bed"
-                pair_sample["Price/SqFt ($)"] = pair_sample["price"] / pair_sample["square_feet"]
+                pair_sample["Bedroom Type"] = pair_sample["bedrooms"].astype(int).astype(str) + " Bedroom"
+                pair_sample["Price per SqFt ($)"] = pair_sample["price"] / pair_sample["square_feet"]
                 pair_sample["Monthly Rent ($)"] = pair_sample["price"]
                 pair_sample["Square Feet"] = pair_sample["square_feet"]
 
-                pair_colors = {"1 Bed": "#38BDF8", "2 Bed": "#34D399", "3 Bed": "#FB923C"}
-                btypes = ["1 Bed", "2 Bed", "3 Bed"]
-                vars_list = ["Monthly Rent ($)", "Square Feet", "Price/SqFt ($)"]
+                pair_colors = {"1 Bedroom": "#1f77b4", "2 Bedroom": "#2ca02c", "3 Bedroom": "#ff7f0e"}
+                btypes = ["1 Bedroom", "2 Bedroom", "3 Bedroom"]
+                vars_list = ["Monthly Rent ($)", "Square Feet", "Price per SqFt ($)"]
 
                 fig15 = make_subplots(
                     rows=3, cols=3,
@@ -1487,9 +1505,9 @@ with tab_eda:
             st.markdown("<br>", unsafe_allow_html=True)
             s_m1, s_m2, s_m3, s_m4 = st.columns(4)
             slice_count = len(df_slice)
-            slice_med = df_slice["price"].median() if slice_count > 0 else 0
-            slice_sqft = df_slice["square_feet"].mean() if slice_count > 0 else 0
-            slice_rate = (df_slice["price"] / df_slice["square_feet"]).mean() if slice_count > 0 else 0
+            slice_med = float(df_slice["price"].median()) if slice_count > 0 else 0
+            slice_sqft = float(df_slice["square_feet"].mean()) if slice_count > 0 else 0
+            slice_rate = float((df_slice["price"] / df_slice["square_feet"]).mean()) if slice_count > 0 else 0
             diff_med = slice_med - med_price
 
             s_m1.markdown(f"<div class='metric-card'><div class='metric-label'>Matching Inventory</div><div class='metric-val'>{slice_count:,} <span style='font-size:0.82rem; color:#94A3B8;'>({slice_count/len(df_eda)*100:.1f}%)</span></div></div>", unsafe_allow_html=True)
@@ -1520,7 +1538,7 @@ with tab_eda:
                     st.markdown("#### Top 10 Cities by Volume in Filtered Slice")
                     top_cities_slice = df_slice["cityname"].value_counts().nlargest(10).reset_index()
                     top_cities_slice.columns = ["City", "Listings"]
-                    city_avg = df_slice[df_slice["cityname"].isin(top_cities_slice["City"])].groupby("cityname")["price"].mean().reset_index()
+                    city_avg = df_slice[df_slice["cityname"].isin(top_cities_slice["City"])].groupby("cityname", observed=False)["price"].mean().reset_index()
                     city_avg.columns = ["City", "AvgPrice"]
                     top_cities_slice = top_cities_slice.merge(city_avg, on="City")
 
@@ -1916,9 +1934,9 @@ with tab_eval:
         # 1. R2 Comparison
         fig_r2 = go.Figure(go.Bar(
             x=models_list,
-            y=[0.6580, 0.7381, 0.8309, 0.8451],
+            y=[0.6583, 0.7352, 0.8318, 0.8463],
             marker=dict(color=colors_list),
-            text=["0.6580", "0.7381", "0.8309", "<b>0.8451</b>"],
+            text=["0.6583", "0.7352", "0.8318", "<b>0.8463</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>R² Score: <b>%{y:.4f}</b><extra></extra>"
         ))
@@ -1931,9 +1949,9 @@ with tab_eval:
         # 2. MAE Comparison
         fig_mae = go.Figure(go.Bar(
             x=models_list,
-            y=[217.92, 185.87, 140.62, 141.21],
+            y=[217.83, 187.52, 140.55, 140.07],
             marker=dict(color=colors_list),
-            text=["$217.92", "$185.87", "$140.62", "<b>$141.21</b>"],
+            text=["$217.83", "$187.52", "$140.55", "<b>$140.07</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>MAE: <b>$%{y:.2f}</b><extra></extra>"
         ))
@@ -1947,9 +1965,9 @@ with tab_eval:
         # 3. RMSE Comparison
         fig_rmse = go.Figure(go.Bar(
             x=models_list,
-            y=[304.41, 266.35, 214.01, 204.88],
+            y=[304.25, 267.86, 213.45, 204.04],
             marker=dict(color=colors_list),
-            text=["$304.41", "$266.35", "$214.01", "<b>$204.88</b>"],
+            text=["$304.25", "$267.86", "$213.45", "<b>$204.04</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>RMSE: <b>$%{y:.2f}</b><extra></extra>"
         ))
@@ -1961,9 +1979,9 @@ with tab_eval:
         # 4. MAPE (%) Comparison (Matching notebook cell 83 panel 4)
         fig_mape = go.Figure(go.Bar(
             x=models_list,
-            y=[16.07, 13.98, 10.62, 10.52],
+            y=[16.07, 14.16, 10.60, 10.45],
             marker=dict(color=colors_list),
-            text=["16.07%", "13.98%", "10.62%", "<b>10.52%</b>"],
+            text=["16.07%", "14.16%", "10.60%", "<b>10.45%</b>"],
             textposition='auto',
             hovertemplate="Model: <b>%{x}</b><br>MAPE: <b>%{y:.2f}%</b><extra></extra>"
         ))
@@ -1978,17 +1996,17 @@ with tab_eval:
     fig_tol.add_trace(go.Bar(
         name="Within ±10% Accuracy",
         x=models_list,
-        y=[43.0, 51.1, 64.6, 62.2],
+        y=[43.2, 50.2, 64.6, 62.8],
         marker=dict(color="#3B82F6"),
-        text=["43.0%", "51.1%", "64.6%", "62.2%"],
+        text=["43.2%", "50.2%", "64.6%", "62.8%"],
         textposition='auto'
     ))
     fig_tol.add_trace(go.Bar(
         name="Within ±20% Accuracy",
         x=models_list,
-        y=[71.3, 78.0, 85.6, 86.6],
+        y=[71.1, 77.3, 85.6, 86.6],
         marker=dict(color="#10B981"),
-        text=["71.3%", "78.0%", "85.6%", "86.6%"],
+        text=["71.1%", "77.3%", "85.6%", "86.6%"],
         textposition='auto'
     ))
     fig_tol.add_hline(y=85.0, line_dash="dash", line_color="#EF4444", annotation_text="Target Benchmark (±20% ≥ 85%)")
